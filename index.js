@@ -24,11 +24,12 @@ const authenticateSME = async (req, res, next) => {
     const  smeSession = new Session()
     await smeSession.login({
       oidcIssuer: oidcIssuer,
-      clientId: id, // Replace with your actual client ID
+      clientId: id,
       clientSecret: secret,
     });
     req.smeSession = smeSession;
     req.authString = `${encodeURIComponent(id)}:${encodeURIComponent(secret)}`;
+    //req.authString = Buffer.from(`${id}:${secret}`).toString('base64');
     next();
   } catch (error) {
     console.error(`Error authenticating user: ${error.message}`);
@@ -51,8 +52,9 @@ const forwardRequestToPodAsSME = async (req, res, next) => {
       body: JSON.stringify(req.body),
     });
 
+    const { access_token: accessToken } = await response.json();
+
     req.podResponse = await response.text();
-    console.log(req.podResponse)
     next();
   } catch (error) {
     console.error(`Error forwarding PUT request to Solid Pod as SME: ${error.message}`);
@@ -68,6 +70,7 @@ app.use(authenticateSME);
 // Route for user Tom to forward the request to the Solid Pod as SME
 app.put('/offer/1', forwardRequestToPodAsSME, (req, res) => {
   const { podResponse } = req;
+  console.log(podResponse)
   res.send('PUT request forwarded to Solid Pod as SME');
 });
 
