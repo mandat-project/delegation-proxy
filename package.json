@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "mocha api.test.js"
   },
   "dependencies": {
     "@inrupt/solid-client-authn-node": "^1.17.5",
