@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "@inrupt/solid-client-authn-node": "^1.17.5",
     "axios": "^1.6.2",
