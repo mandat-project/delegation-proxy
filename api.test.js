@@ -1,4 +1,5 @@
 const baseUrl = 'http://localhost:3000';
+const testContainer = 'https://bank.solid.aifb.kit.edu/test/';
 
 describe('API Tests', () => {
   it('should make a GET request', async () => {
