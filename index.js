@@ -32,6 +32,7 @@ const authenticateSME = async (req, res, next) => {
     });
     req.smeSession = smeSession;
     req.authString = `${encodeURIComponent(id)}:${encodeURIComponent(secret)}`;
+    //req.authString = Buffer.from(`${id}:${secret}`).toString('base64');
     next();
   } catch (error) {
     console.error(`Error authenticating user: ${error.message}`);
