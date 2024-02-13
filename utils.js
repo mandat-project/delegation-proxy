@@ -22,3 +22,4 @@ function base64urlEncode(input) {
 }
 
 module.exports = { calculateJWKThumbprint };
+
