@@ -1,9 +1,10 @@
-const { SME_EMAIL, SME_PASSWORD, OIDC_NAME } = require('./constants');
 
+const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL} = require('./constants');
+const { calculateJWKThumbprint }  = require('./utils');
 const express = require('express');
 const { Session } = require('@inrupt/solid-client-authn-node');
 
-const N3 = require('n3');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = 3000;
@@ -11,7 +12,7 @@ const port = 3000;
 // Middleware for authenticating the SME
 const authenticateSME = async (req, res, next) => {
   try {
-    const oidcIssuer = 'https://solid.aifb.kit.edu/';
+    const oidcIssuer = OIDC_USER;
     const response = await fetch(oidcIssuer + 'idp/credentials/', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -32,7 +33,6 @@ const authenticateSME = async (req, res, next) => {
     });
     req.smeSession = smeSession;
     req.authString = `${encodeURIComponent(id)}:${encodeURIComponent(secret)}`;
-    //req.authString = Buffer.from(`${id}:${secret}`).toString('base64');
     next();
   } catch (error) {
     console.error(`Error authenticating user: ${error.message}`);
@@ -44,7 +44,7 @@ const authenticateSME = async (req, res, next) => {
 const forwardRequestToPodAsSME = async (req, res, next, url) => {
   try {
     const { default: fetch } = await import('node-fetch');
-    const podUrl = 'https://bank.solid.aifb.kit.edu';
+    const podUrl = POD_URL;
     const method = req.method;
     // Forward the PUT request to the Solid Pod using the authenticated smeSession
     const requestOptions = {
@@ -74,11 +74,24 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
 app.use(express.text());
 app.use(authenticateSME);
 
-app.all('*', (req, res, next) => {
+app.all('*', async (req, res, next) => {
   const path = req.originalUrl;
-  console.log("Request Body: ", req.body)
   console.log(req.method, "route from Postman:", path);
-  forwardRequestToPodAsSME(req, res, next, path);
+
+  const accessToken = req.headers['authorization'].replace('DPoP ', '');
+  const dpopProofFromRequest = req.headers['dpop'];
+
+  const decodedDPoPProof = jwt.decode(dpopProofFromRequest, {complete: true});
+  const decodedAccessToken = jwt.decode(accessToken, {complete: true});
+
+  const thumbprint = calculateJWKThumbprint(decodedDPoPProof.header.jwk);
+
+  if (decodedAccessToken.payload.cnf.jkt === thumbprint) {
+    await forwardRequestToPodAsSME(req, res, next, path);
+  }
+  else {
+    res.status(401).json({ message: 'Invalid client for this access token' });
+  }
 }, (req, res) => {
   const { podResponse } = req;
   res.send(podResponse);
@@ -90,10 +103,16 @@ app.listen(port, () => {
   console.log(`Delegation proxy listening at http://localhost:${port}`);
 });
 
-//todo:
-// creturn just the pod response.
-// fix the PUT and GET response
-// Have few test cases for GET, PUT, POST, DELETE
+// done
+// return just the pod response - done
+// fix the PUT and GET response - done
+// send triple in the request body - done
+// Have few test cases for GET, PUT, POST, DELETE - partially done
+
+// todo
+// start the server before running the test case
+// run series of test GET after PUT and assert the data
+// delete the new resource
 // proxy to authenticate TOM (library will validate the dpop token, starts with oidc(probably))
 // check the authorization for TOM
 
@@ -103,3 +122,5 @@ app.listen(port, () => {
 //   "email": "tom@sme.com",
 //   "password": "tom42"
 // }
+
+
