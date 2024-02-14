@@ -1,7 +1,8 @@
 {
+  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "test": "mocha api.test.js"
+    "start": "node src/main.js",
+    "test": "mocha test/main.test.js"
   },
   "dependencies": {
     "@inrupt/solid-client-authn-node": "^1.17.5",
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "chai": "^5.0.3",
-    "mocha": "^10.2.0"
+    "mocha": "^10.2.0",
+    "molid": "^0.3.0"
   }
 }

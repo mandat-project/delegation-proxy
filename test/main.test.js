@@ -1,3 +1,5 @@
+import { givenMolid } from 'molid/lib/molid-jest';
+
 const baseUrl = 'http://localhost:3000';
 const testContainer = 'https://bank.solid.aifb.kit.edu/test/';
 

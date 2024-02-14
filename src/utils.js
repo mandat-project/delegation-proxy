@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 function calculateJWKThumbprint(jwk) {
   const sortedJWK = {};
@@ -21,5 +21,5 @@ function base64urlEncode(input) {
   return Buffer.from(input).toString('base64url');
 }
 
-module.exports = { calculateJWKThumbprint };
+export { calculateJWKThumbprint };
 
