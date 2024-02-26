@@ -9,6 +9,35 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const port = 3000;
 
+const HttpMethod = {
+  GET: 0,
+  POST: 1,
+  PUT: 2,
+  DELETE: 3
+}
+
+/*
+The SME Solid Pod contains policies like this:
+  <#roleCEO> frog:hasAccess [
+    http:mthd httpm:PUT ;
+    http:uri <https://bank.solid.aifb.kit.edu/offer/1>
+  ] .
+
+and an organization ontology modeling which determines which WebId has which org:Role
+
+Parameters:
+  webId:  string
+  uri: string
+  method: HttpMethod 
+
+Return:
+  boolean
+*/
+
+async function hasAccess(webId, uri, method) {
+  // TODO for Apoorva
+}
+
 // Middleware for authenticating the SME
 const authenticateSME = async (req, res, next) => {
   try {
