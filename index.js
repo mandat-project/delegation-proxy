@@ -16,6 +16,30 @@ const HttpMethod = {
   DELETE: 3
 }
 
+// Example RDF Turtle data
+const rdfTurtleData = `
+@prefix dc: <http://purl.org/dc/terms/>.
+@prefix org: <http://www.w3.org/ns/org#>.
+@prefix ldp: <http://www.w3.org/ns/ldp#>.
+@prefix posix: <http://www.w3.org/ns/posix/stat#>.
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
+@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#>.
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#>.
+
+<https://sme.solid.aifb.kit.edu/organization/Bank#ceoRole> a org:Role ;
+    rdfs:label "CEO" ;
+    frog:access [
+        frog:httpMethod "PUT" ;
+        frog:uri <https://bank.solid.aifb.kit.edu/offer/1>
+    ] ;
+    frog:access [
+        frog:httpMethod "GET" ;
+        frog:uri <https://bank.solid.aifb.kit.edu/offer/1>
+    ] .
+
+<https://sme.solid.aifb.kit.edu/organization/Bank#ceoRole> org:heldBy <https://tom.solid.aifb.kit.edu/profile/card#me> .
+`;
+
 /*
 The SME Solid Pod contains policies like this:
   <#roleCEO> frog:hasAccess [
@@ -33,10 +57,6 @@ Parameters:
 Return:
   boolean
 */
-
-async function hasAccess(webId, uri, method) {
-  // TODO for Apoorva
-}
 
 // Middleware for authenticating the SME
 const authenticateSME = async (req, res, next) => {
@@ -69,7 +89,6 @@ const authenticateSME = async (req, res, next) => {
   }
 };
 
-// Middleware for forwarding the PUT request to the Solid Pod authenticated as SME
 const forwardRequestToPodAsSME = async (req, res, next, url) => {
   try {
     const { default: fetch } = await import('node-fetch');
@@ -99,6 +118,77 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
   }
 };
 
+async function hasAccess(req, res, webId, path, method) {
+  // TODO for Apoorva
+  const  uri = POD_URL + path
+  console.log("URI to check access", uri)
+  return await checkSolidPodAccess(req, res, webId, uri, method);
+}
+
+async function checkSolidPodAccess(req, res, webId, uri, method) {
+  // Simulate fetching access policies from the Solid Pod
+  const solidPodPolicies = await fetchSolidPodPolicies(req, res, webId);
+  console.log("solidPodPolicies for ",webId, " ", solidPodPolicies)
+    // Check if the role CEO has policies for the specified method
+  const roleCEOPolicies = solidPodPolicies[method];
+
+  // Check if the method exists and if the specified URI is allowed
+  if (roleCEOPolicies && roleCEOPolicies.includes(uri)) {
+    return true; // Access granted
+  }
+
+  return false; // Access denied
+}
+
+
+async function fetchSolidPodPolicies(req, res, webId) {
+  const podEndpoint = 'https://sme.solid.aifb.kit.edu/organization/';
+  const sme_response = await req.smeSession.fetch(`${podEndpoint}`);
+  const rdfData = await sme_response.text();
+  // Parse RDF data
+  const solidPodPolicies = parseRdfDataForWebID(rdfTurtleData, webId);
+  return solidPodPolicies
+}
+
+function parseRdfDataForWebID(rdfData, webID) {
+  const parsedPolicies = {};
+  const accessTriples = rdfData.match(/frog:access\s*\[([^\]]*)\]/g);
+
+  if (accessTriples) {
+    for (const accessTriple of accessTriples) {
+      const methodMatch = accessTriple.match(/frog:httpMethod\s*"([^"]+)"/);
+      const uriMatch = accessTriple.match(/frog:uri\s*<([^>]+)>/);
+
+      if (methodMatch && uriMatch) {
+        const httpMethod = methodMatch[1];
+        const uri = uriMatch[1];
+
+        // Assuming the webID is specified in the RDF data either directly or using org:heldBy
+        let roleWebIDMatch = accessTriple.match(/org:heldBy\s*<([^>]+)>/);
+        let roleWebID = roleWebIDMatch ? roleWebIDMatch[1] : null;
+
+        if (!roleWebID) {
+          // Check if org:heldBy is specified directly outside of frog:access
+          const directHeldByMatch = rdfData.match(/<[^>]+>\s+org:heldBy\s*<([^>]+)>/);
+          roleWebID = directHeldByMatch ? directHeldByMatch[1] : null;
+        }
+
+        // Use a case-insensitive comparison for webID
+        if (roleWebID && roleWebID.toLowerCase() === webID.toLowerCase()) {
+          if (!parsedPolicies[httpMethod]) {
+            parsedPolicies[httpMethod] = [];
+          }
+
+          parsedPolicies[httpMethod].push(uri);
+        }
+      }
+    }
+  }
+  return parsedPolicies;
+}
+
+// Middleware for forwarding the PUT request to the Solid Pod authenticated as SME
+
 // Set up middleware
 app.use(express.text());
 app.use(authenticateSME);
@@ -107,20 +197,31 @@ app.all('*', async (req, res, next) => {
   const path = req.originalUrl;
   console.log(req.method, "route from Postman:", path);
 
-  const accessToken = req.headers['authorization'].replace('DPoP ', '');
-  const dpopProofFromRequest = req.headers['dpop'];
+  //const webId = 'https://tom.solid.aifb.kit.edu/profile/card#me';
 
-  const decodedDPoPProof = jwt.decode(dpopProofFromRequest, {complete: true});
-  const decodedAccessToken = jwt.decode(accessToken, {complete: true});
+  const webId = 'https://apoorva.solid.aifb.kit.edu/profile/card#me';
+  const accessGranted = await hasAccess(req, res, webId, path, req.method);
+  console.log('Access Granted:', accessGranted);
+  if (accessGranted) {
+    const accessToken = req.headers['authorization'].replace('DPoP ', '');
+    const dpopProofFromRequest = req.headers['dpop'];
 
-  const thumbprint = calculateJWKThumbprint(decodedDPoPProof.header.jwk);
+    const decodedDPoPProof = jwt.decode(dpopProofFromRequest, {complete: true});
+    const decodedAccessToken = jwt.decode(accessToken, {complete: true});
 
-  if (decodedAccessToken.payload.cnf.jkt === thumbprint) {
-    await forwardRequestToPodAsSME(req, res, next, path);
+    const thumbprint = calculateJWKThumbprint(decodedDPoPProof.header.jwk);
+
+    if (decodedAccessToken.payload.cnf.jkt === thumbprint) {
+      await forwardRequestToPodAsSME(req, res, next, path);
+    }
+    else {
+      res.status(401).json({ message: 'Invalid client for this access token' });
+    }
   }
   else {
-    res.status(401).json({ message: 'Invalid client for this access token' });
+    res.status(403).json({ message: 'Access forbidden' });
   }
+
 }, (req, res) => {
   const { podResponse } = req;
   res.send(podResponse);
@@ -131,6 +232,8 @@ app.all('*', async (req, res, next) => {
 app.listen(port, () => {
   console.log(`Delegation proxy listening at http://localhost:${port}`);
 });
+
+
 
 // done
 // return just the pod response - done
