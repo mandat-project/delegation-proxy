@@ -3,6 +3,7 @@ const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL} = require('./con
 const { calculateJWKThumbprint }  = require('./utils');
 const express = require('express');
 const { Session } = require('@inrupt/solid-client-authn-node');
+const { Parser } = require('n3');
 
 const jwt = require('jsonwebtoken');
 
@@ -15,30 +16,6 @@ const HttpMethod = {
   PUT: 2,
   DELETE: 3
 }
-
-// Example RDF Turtle data
-const rdfTurtleData = `
-@prefix dc: <http://purl.org/dc/terms/>.
-@prefix org: <http://www.w3.org/ns/org#>.
-@prefix ldp: <http://www.w3.org/ns/ldp#>.
-@prefix posix: <http://www.w3.org/ns/posix/stat#>.
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#>.
-@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#>.
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#>.
-
-<https://sme.solid.aifb.kit.edu/organization/Bank#ceoRole> a org:Role ;
-    rdfs:label "CEO" ;
-    frog:access [
-        frog:httpMethod "PUT" ;
-        frog:uri <https://bank.solid.aifb.kit.edu/offer/1>
-    ] ;
-    frog:access [
-        frog:httpMethod "GET" ;
-        frog:uri <https://bank.solid.aifb.kit.edu/offer/1>
-    ] .
-
-<https://sme.solid.aifb.kit.edu/organization/Bank#ceoRole> org:heldBy <https://tom.solid.aifb.kit.edu/profile/card#me> .
-`;
 
 /*
 The SME Solid Pod contains policies like this:
@@ -94,7 +71,6 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
     const { default: fetch } = await import('node-fetch');
     const podUrl = POD_URL;
     const method = req.method;
-    // Forward the PUT request to the Solid Pod using the authenticated smeSession
     const requestOptions = {
       method: method,
       headers: {'content-type':req.headers['content-type']},
@@ -118,15 +94,16 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
   }
 };
 
-async function hasAccess(req, res, webId, path, method) {
+async function hasAccess(req, res, webId, uri, method) {
   // TODO for Apoorva
-  const  uri = POD_URL + path
   console.log("URI to check access", uri)
   return await checkSolidPodAccess(req, res, webId, uri, method);
 }
 
+// https://github.com/rdfjs/N3.js
+// const requestUri = 'https://' + req.get('host') + req.path;
+
 async function checkSolidPodAccess(req, res, webId, uri, method) {
-  // Simulate fetching access policies from the Solid Pod
   const solidPodPolicies = await fetchSolidPodPolicies(req, res, webId);
   console.log("solidPodPolicies for ",webId, " ", solidPodPolicies)
     // Check if the role CEO has policies for the specified method
@@ -142,13 +119,15 @@ async function checkSolidPodAccess(req, res, webId, uri, method) {
 
 
 async function fetchSolidPodPolicies(req, res, webId) {
-  const podEndpoint = 'https://sme.solid.aifb.kit.edu/organization/';
+  const podEndpoint = 'https://sme.solid.aifb.kit.edu/organization/bank.ttl';
   const sme_response = await req.smeSession.fetch(`${podEndpoint}`);
   const rdfData = await sme_response.text();
   // Parse RDF data
-  const solidPodPolicies = parseRdfDataForWebID(rdfTurtleData, webId);
+  console.log(rdfData)
+  const solidPodPolicies = parseRdfDataForWebID(rdfData, webId);
   return solidPodPolicies
 }
+
 
 function parseRdfDataForWebID(rdfData, webID) {
   const parsedPolicies = {};
@@ -187,6 +166,87 @@ function parseRdfDataForWebID(rdfData, webID) {
   return parsedPolicies;
 }
 
+
+
+//todo: use n3 library to parse the RDF
+
+// async function parseRdfDataForWebID(rdfData, webID) {
+//   const parsedPolicies = {};
+//
+//   // Create a new N3 parser
+//   const parser = new Parser();
+//   const prefixes = {};
+//
+//   parser.parse(rdfData, (error, triple) => {
+//     if (error) {
+//       console.error('Error parsing RDF data:', error);
+//       return;
+//     }
+//     if (
+//       triple &&
+//       triple.predicate.id === 'http://www.w3.org/ns/org#heldBy' &&
+//       triple.object.id === webID
+//     ) {
+//       const roleUri = triple.subject;
+//       const accessPolicies = findAccessPolicies(parser, rdfData, roleUri, prefixes);
+//       Object.assign(parsedPolicies, accessPolicies);
+//     }
+//   });
+//   return parsedPolicies;
+// }
+
+// function findAccessPolicies(parser, rdfData, roleUri, prefixes) {
+//   const accessPolicies = {};
+//
+//   parser.parse(rdfData, (error, triple) => {
+//     if (error) {
+//       console.error('Error parsing RDF data:', error);
+//       return;
+//     }
+//
+//     if (
+//       triple &&
+//       triple.subject === roleUri &&
+//       triple.predicate === `${prefixes.frog}access`
+//     ) {
+//       const methodTriple = findTripleWithPredicate(parser, rdfData, triple.object, `${prefixes.frog}httpMethod`);
+//       const uriTriple = findTripleWithPredicate(parser, rdfData, triple.object, `${prefixes.frog}uri`);
+//
+//       if (methodTriple && uriTriple) {
+//         const method = methodTriple.object.value.toUpperCase();
+//         const uri = uriTriple.object.value;
+//
+//         // Add the access policy to the accessPolicies object
+//         if (!accessPolicies[method]) {
+//           accessPolicies[method] = [];
+//         }
+//         accessPolicies[method].push(uri);
+//       }
+//     }
+//   });
+//
+//   return accessPolicies;
+// }
+//
+// function findTripleWithPredicate(parser, rdfData, subject, predicate) {
+//   let foundTriple = null;
+//
+//   // Parse the RDF data
+//   parser.parse(rdfData, (error, triple) => {
+//     if (error) {
+//       console.error('Error parsing RDF data:', error);
+//       return;
+//     }
+//
+//     if (triple && triple.subject === subject && triple.predicate === predicate) {
+//       foundTriple = triple;
+//     }
+//   });
+//
+//   return foundTriple;
+// }
+
+
 // Middleware for forwarding the PUT request to the Solid Pod authenticated as SME
 
 // Set up middleware
@@ -197,10 +257,11 @@ app.all('*', async (req, res, next) => {
   const path = req.originalUrl;
   console.log(req.method, "route from Postman:", path);
 
-  //const webId = 'https://tom.solid.aifb.kit.edu/profile/card#me';
+  const webId = 'https://tom.solid.aifb.kit.edu/profile/card#me';
+  const uri = 'https://bank.solid.aifb.kit.edu/offer/1'
 
-  const webId = 'https://apoorva.solid.aifb.kit.edu/profile/card#me';
-  const accessGranted = await hasAccess(req, res, webId, path, req.method);
+  //const webId = 'https://apoorva.solid.aifb.kit.edu/profile/card#me';
+  const accessGranted = await hasAccess(req, res, webId, uri, req.method);
   console.log('Access Granted:', accessGranted);
   if (accessGranted) {
     const accessToken = req.headers['authorization'].replace('DPoP ', '');
