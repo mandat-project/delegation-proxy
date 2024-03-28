@@ -45,6 +45,7 @@ async function forwardRequest(req, res) {
   res.end();
 }
 
+// This function returns an Express.js middleware
 async function delegationProxy(webId, idp, client_id, client_secret) {
   log.verbose('SDS-D', 'Starting SDS-D middleware');
   // Logging in with Solid OIDC
@@ -52,45 +53,59 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
   log.verbose('SDS-D', `Logging in as ${webId}`);
   // Create keypair for signing DPoPs
   const { publicKey, privateKey } = await generateKeyPair('RS256');
+  const jwkPublicKey = await exportJWK(publicKey);
+  jwkPublicKey.alg = 'RS256';
 
   // Find token endpoint of IdP
   const oidc_config = await (await fetch(idp + '/.well-known/openid-configuration')).json();
   const token_endpoint = oidc_config['token_endpoint'];
   log.verbose('SDS-D', `Found token endpoint ${token_endpoint}`);
 
-  // Create signed DPoP
-  const jwkPublicKey = await exportJWK(publicKey);
-  jwkPublicKey.alg = 'RS256';
-  const dpop = await new SignJWT({
-    htu: token_endpoint,
-    htm: 'POST'
-  })
-    .setProtectedHeader({
-      alg: 'PS256',
-      typ: 'dpop+jwt',
-      jwk: jwkPublicKey
-    })
-    .setIssuedAt()
-    .setJti(randomUUID())
-    .sign(privateKey);
-  log.verbose('SDS-D', `Created signed DPoP proof`);
-
-  // Get auth token from token endpoint
-  const tokens = await (await fetch(token_endpoint, {
-      method: 'POST',
-      headers: {
-          'DPoP': dpop,
-          'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id,
-          client_secret
+  // Save the current auth token here
+  var currentAuthToken = null;
+  // For every outgoing request this function should be called to see if
+  // the auth token is still valid and otherwise get a new one
+  async function getCurrentAuthToken() {
+    if(currentAuthToken && decodeJwt(currentAuthToken).exp > (Date.now() / 1000 + 60 * 9)) {
+      // Still valid (plus one minute in the future), nothing to do
+      log.verbose('SDS-D', `Reusing existing auth token for ${webId}`);
+    } else {
+      // Create signed DPoP
+      const dpop = await new SignJWT({
+        htu: token_endpoint,
+        htm: 'POST'
       })
-  })).json();
-  log.silly('Solid OIDC tokens', tokens);
-  const proxy_auth_token = tokens['access_token'];
-  log.info('SDS-D', `Sucessfully logged in as ${webId}`);
+        .setProtectedHeader({
+          alg: 'PS256',
+          typ: 'dpop+jwt',
+          jwk: jwkPublicKey
+        })
+        .setIssuedAt()
+        .setJti(randomUUID())
+        .sign(privateKey);
+      log.verbose('SDS-D', `Created signed DPoP proof`);
+
+      // Get new auth token from token endpoint
+      const tokens = await (await fetch(token_endpoint, {
+          method: 'POST',
+          headers: {
+              'DPoP': dpop,
+              'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              client_id,
+              client_secret
+          })
+      })
+      ).json();
+      log.silly('SDS-D', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
+      log.info('SDS-D', `Sucessfully logged in as ${webId}`);
+      currentAuthToken = tokens['access_token'];
+    }
+
+    return currentAuthToken;
+  }
 
   // Return actual middleware handler
   return async function delegationProxy(req, res, next) {
@@ -178,6 +193,7 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
         return;
       }
 
+      // Create and sign a DPoP for the request
       const proxy_dpop = await new SignJWT({
         htu: payload_dpop_proof['htu'],
         htm: payload_dpop_proof['htm']
@@ -196,16 +212,16 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
         method: payload_dpop_proof['htm'],
         headers: {
             'DPoP': proxy_dpop,
-            'Authorization': 'DPoP ' + proxy_auth_token
+            'Authorization': 'DPoP ' + await getCurrentAuthToken()
         }
       });
       log.verbose(`${req.rid}`, `Sent request, received response`);
 
-      // Copy header and status
+      // Copy header and status to client response
       res.set(Object.fromEntries(serverRes.headers));
       res.status(serverRes.status);
 
-      // Copy body
+      // Copy body to client response
       let reader = serverRes.body.getReader();
       let done = false
       let value = '';
