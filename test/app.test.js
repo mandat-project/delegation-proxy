@@ -1,12 +1,27 @@
-import { givenMolid } from 'molid/lib/molid-jest';
+import { start } from 'molid';
+import { expect } from 'chai';
+import { fetch } from 'solid-auth-client';
+import app from '../src/app.js';
 
-const baseUrl = 'http://localhost:3000';
-const testContainer = 'https://bank.solid.aifb.kit.edu/test/';
+const publicResource = 'http://localhost:3000/public_data';
+const privateResource = 'http://localhost:3000/private_data';
+const noAccessResource = 'http://localhost:3000/no_access_data';
 
-describe('API Tests', () => {
-  it('should make a GET request', async () => {
-      const { expect } = await import('chai');
-      const fetch = (await import('node-fetch')).default;
+describe('app.all(\'*\', ...);', () => {
+  let molid;
+  let server;
+
+  before(async () => {
+    molid = await start();
+    server = app.listen(3000);
+  });
+
+  after(async () => {
+    await molid.stop();
+    server.close();
+  });
+
+  it('GET requests to public resources should work unauthenticated', async () => {
       try {
           const response = await fetch(`${baseUrl}/offer/1`, {
             method: 'GET',
