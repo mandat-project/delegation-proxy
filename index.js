@@ -3,7 +3,9 @@ const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL} = require('./con
 const { calculateJWKThumbprint }  = require('./utils');
 const express = require('express');
 const { Session } = require('@inrupt/solid-client-authn-node');
-const { Parser } = require('n3');
+const N3 = require('n3');
+const { DataFactory } = N3;
+const { namedNode} = DataFactory;
 
 const jwt = require('jsonwebtoken');
 
@@ -16,24 +18,6 @@ const HttpMethod = {
   PUT: 2,
   DELETE: 3
 }
-
-/*
-The SME Solid Pod contains policies like this:
-  <#roleCEO> frog:hasAccess [
-    http:mthd httpm:PUT ;
-    http:uri <https://bank.solid.aifb.kit.edu/offer/1>
-  ] .
-
-and an organization ontology modeling which determines which WebId has which org:Role
-
-Parameters:
-  webId:  string
-  uri: string
-  method: HttpMethod 
-
-Return:
-  boolean
-*/
 
 // Middleware for authenticating the SME
 const authenticateSME = async (req, res, next) => {
@@ -100,17 +84,13 @@ async function hasAccess(req, res, webId, uri, method) {
   return await checkSolidPodAccess(req, res, webId, uri, method);
 }
 
-// https://github.com/rdfjs/N3.js
-// const requestUri = 'https://' + req.get('host') + req.path;
-
 async function checkSolidPodAccess(req, res, webId, uri, method) {
   const solidPodPolicies = await fetchSolidPodPolicies(req, res, webId);
-  console.log("solidPodPolicies for ",webId, " ", solidPodPolicies)
+  console.log("solidPodPolicies ", solidPodPolicies)
     // Check if the role CEO has policies for the specified method
-  const roleCEOPolicies = solidPodPolicies[method];
-
+  const roleCEOPolicies = solidPodPolicies[webId];
   // Check if the method exists and if the specified URI is allowed
-  if (roleCEOPolicies && roleCEOPolicies.includes(uri)) {
+  if (roleCEOPolicies && (roleCEOPolicies[method].includes(uri))) {
     return true; // Access granted
   }
 
@@ -129,122 +109,42 @@ async function fetchSolidPodPolicies(req, res, webId) {
 }
 
 
-function parseRdfDataForWebID(rdfData, webID) {
-  const parsedPolicies = {};
-  const accessTriples = rdfData.match(/frog:access\s*\[([^\]]*)\]/g);
+async function parseRdfDataForWebID(rdfData, webId) {
+  const store = new N3.Store()
+  const parser = new N3.Parser();
+  try {
+    const  parsedRdf = parser.parse(rdfData);
+    store.addQuads(parsedRdf)
+  } catch (err) {
+    console.error('Error parsing RDF data:', err);
+    return;
+  }
 
-  if (accessTriples) {
-    for (const accessTriple of accessTriples) {
-      const methodMatch = accessTriple.match(/frog:httpMethod\s*"([^"]+)"/);
-      const uriMatch = accessTriple.match(/frog:uri\s*<([^>]+)>/);
+  const accessPolicies = {};
+  for (const quad of store.getSubjects(namedNode('http://www.w3.org/ns/org#heldBy'),
+      namedNode(webId))){
+    const role = quad.id;
 
-      if (methodMatch && uriMatch) {
-        const httpMethod = methodMatch[1];
-        const uri = uriMatch[1];
+    const accessQuads = store.getObjects(namedNode(role), namedNode('https://solid.ti.rw.fau.de/public/ns/frog#access'))
+    for (const accessQuad of accessQuads) {
+      const method = store.getObjects(accessQuad, namedNode('https://solid.ti.rw.fau.de/public/ns/frog#httpMethod'))[0].id
+      const uri = store.getObjects(accessQuad, namedNode('https://solid.ti.rw.fau.de/public/ns/frog#uri'))[0].id
 
-        // Assuming the webID is specified in the RDF data either directly or using org:heldBy
-        let roleWebIDMatch = accessTriple.match(/org:heldBy\s*<([^>]+)>/);
-        let roleWebID = roleWebIDMatch ? roleWebIDMatch[1] : null;
+      const method_literal = method.slice(1, -1)
 
-        if (!roleWebID) {
-          // Check if org:heldBy is specified directly outside of frog:access
-          const directHeldByMatch = rdfData.match(/<[^>]+>\s+org:heldBy\s*<([^>]+)>/);
-          roleWebID = directHeldByMatch ? directHeldByMatch[1] : null;
-        }
-
-        // Use a case-insensitive comparison for webID
-        if (roleWebID && roleWebID.toLowerCase() === webID.toLowerCase()) {
-          if (!parsedPolicies[httpMethod]) {
-            parsedPolicies[httpMethod] = [];
-          }
-
-          parsedPolicies[httpMethod].push(uri);
-        }
+      if (!accessPolicies[webId]) {
+        accessPolicies[webId] = {};
       }
+      if (!accessPolicies[webId][method_literal]) {
+        accessPolicies[webId][method_literal] = [];
+      }
+      accessPolicies[webId][method_literal].push(uri);
     }
   }
-  return parsedPolicies;
+  return accessPolicies;
 }
 
-
-
 //todo: use n3 library to parse the RDF
-
-// async function parseRdfDataForWebID(rdfData, webID) {
-//   const parsedPolicies = {};
-//
-//   // Create a new N3 parser
-//   const parser = new Parser();
-//   const prefixes = {};
-//
-//   parser.parse(rdfData, (error, triple) => {
-//     if (error) {
-//       console.error('Error parsing RDF data:', error);
-//       return;
-//     }
-//     if (
-//       triple &&
-//       triple.predicate.id === 'http://www.w3.org/ns/org#heldBy' &&
-//       triple.object.id === webID
-//     ) {
-//       const roleUri = triple.subject;
-//       const accessPolicies = findAccessPolicies(parser, rdfData, roleUri, prefixes);
-//       Object.assign(parsedPolicies, accessPolicies);
-//     }
-//   });
-//   return parsedPolicies;
-// }
-
-// function findAccessPolicies(parser, rdfData, roleUri, prefixes) {
-//   const accessPolicies = {};
-//
-//   parser.parse(rdfData, (error, triple) => {
-//     if (error) {
-//       console.error('Error parsing RDF data:', error);
-//       return;
-//     }
-//
-//     if (
-//       triple &&
-//       triple.subject === roleUri &&
-//       triple.predicate === `${prefixes.frog}access`
-//     ) {
-//       const methodTriple = findTripleWithPredicate(parser, rdfData, triple.object, `${prefixes.frog}httpMethod`);
-//       const uriTriple = findTripleWithPredicate(parser, rdfData, triple.object, `${prefixes.frog}uri`);
-//
-//       if (methodTriple && uriTriple) {
-//         const method = methodTriple.object.value.toUpperCase();
-//         const uri = uriTriple.object.value;
-//
-//         // Add the access policy to the accessPolicies object
-//         if (!accessPolicies[method]) {
-//           accessPolicies[method] = [];
-//         }
-//         accessPolicies[method].push(uri);
-//       }
-//     }
-//   });
-//
-//   return accessPolicies;
-// }
-//
-// function findTripleWithPredicate(parser, rdfData, subject, predicate) {
-//   let foundTriple = null;
-//
-//   // Parse the RDF data
-//   parser.parse(rdfData, (error, triple) => {
-//     if (error) {
-//       console.error('Error parsing RDF data:', error);
-//       return;
-//     }
-//
-//     if (triple && triple.subject === subject && triple.predicate === predicate) {
-//       foundTriple = triple;
-//     }
-//   });
-//
-//   return foundTriple;
-// }
 
 
 // Middleware for forwarding the PUT request to the Solid Pod authenticated as SME
@@ -260,7 +160,7 @@ app.all('*', async (req, res, next) => {
   const webId = 'https://tom.solid.aifb.kit.edu/profile/card#me';
   const uri = 'https://bank.solid.aifb.kit.edu/offer/1'
 
-  //const webId = 'https://apoorva.solid.aifb.kit.edu/profile/card#me';
+  // const webId = 'https://apoorva.solid.aifb.kit.edu/profile/card#me';
   const accessGranted = await hasAccess(req, res, webId, uri, req.method);
   console.log('Access Granted:', accessGranted);
   if (accessGranted) {
@@ -315,5 +215,3 @@ app.listen(port, () => {
 //   "email": "tom@sme.com",
 //   "password": "tom42"
 // }
-
-
