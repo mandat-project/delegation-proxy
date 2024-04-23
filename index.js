@@ -1,5 +1,5 @@
 
-const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL} = require('./constants');
+const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL, POD_URL_TEST} = require('./constants');
 const { calculateJWKThumbprint }  = require('./utils');
 const express = require('express');
 const { Session } = require('@inrupt/solid-client-authn-node');
@@ -55,6 +55,7 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
     const { default: fetch } = await import('node-fetch');
     const podUrl = POD_URL;
     const method = req.method;
+    const podTestUrl = POD_URL_TEST
     const requestOptions = {
       method: method,
       headers: {'content-type':req.headers['content-type']},
@@ -123,7 +124,8 @@ async function parseRdfDataForWebID(rdfData, webId) {
   const accessPolicies = {};
   for (const quad of store.getSubjects(namedNode('http://www.w3.org/ns/org#heldBy'),
       namedNode(webId))){
-    const role = quad.id;
+    const post = quad.id;
+    const role = store.getObjects(namedNode(post), namedNode('http://www.w3.org/ns/org#role'))[0].id
 
     const accessQuads = store.getObjects(namedNode(role), namedNode('https://solid.ti.rw.fau.de/public/ns/frog#access'))
     for (const accessQuad of accessQuads) {
@@ -143,9 +145,6 @@ async function parseRdfDataForWebID(rdfData, webId) {
   }
   return accessPolicies;
 }
-
-//todo: use n3 library to parse the RDF
-
 
 // Middleware for forwarding the PUT request to the Solid Pod authenticated as SME
 
@@ -190,28 +189,16 @@ app.all('*', async (req, res, next) => {
 
 
 // Start the server
-app.listen(port, () => {
-  console.log(`Delegation proxy listening at http://localhost:${port}`);
-});
+function main() {
+  const port = 3000; // Specify the port you want to listen on
+  app.listen(port, () => {
+    console.log(`Delegation proxy listening at http://localhost:${port}`);
+  });
+}
+
+module.exports = main;
+
+// Call the main function
+main();
 
 
-
-// done
-// return just the pod response - done
-// fix the PUT and GET response - done
-// send triple in the request body - done
-// Have few test cases for GET, PUT, POST, DELETE - partially done
-
-// todo
-// start the server before running the test case
-// run series of test GET after PUT and assert the data
-// delete the new resource
-// proxy to authenticate TOM (library will validate the dpop token, starts with oidc(probably))
-// check the authorization for TOM
-
-
-
-// {
-//   "email": "tom@sme.com",
-//   "password": "tom42"
-// }
