@@ -188,8 +188,8 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
       }
       if(!(await hasAccess(delegatorWebId, delegateWebId, requestUri, method))) {
         log.warn(`${req.rid}`, `Access denied by policies!`);
+        res.status(403);
         res.send("Access denied by policies!");
-        res.sendStatus(403);
         return;
       }
 
