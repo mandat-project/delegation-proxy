@@ -267,15 +267,15 @@ Return:
 async function hasAccess(webId, uri, method, session) {
   // TODO for Apoorva
   // for now:
-  return webId == 'https://tom.solid.aifb.kit.edu/profile/card#me' && uri == 'https://bank.solid.aifb.kit.edu/offer/1' && method == HttpMethod.GET;
+  return webId == 'https://tom.solid.aifb.kit.edu/profile/card#me' && uri == 'https://bank.solid.aifb.kit.edu/credits/offers/7b49ef42-45ef-4d1b-9234-a6d3e9875c79' && method == HttpMethod.GET;
 }
 
 // Set up middleware
 app.use(await delegationProxy(
   'https://sme.solid.aifb.kit.edu/profile/card#me',
   'https://solid.aifb.kit.edu',
-  'delegation_proxy_23f0c353-3be0-422f-99e8-af21b3edf945',
-  'c8ec18a79a813d9333ba804832d4bad28756b20c2957672b6c5510514cbafdf38de222fefa58e34fc75773494d14be1538e1f13c91064064e1b4f847a39b7c51'
+  'delegation_proxy_4ae7b58d-3632-41f3-b495-7711c5ad4839',
+  '43a227e4b303d1bb13ffc01fdec4ca9ec7120326684551e3878dbd50c2539abbb31c853fca6455ab43f34125e990f0a02fdb71a1765076a0c80577d2ac3d6e58'
 ));
 
 export default app;
