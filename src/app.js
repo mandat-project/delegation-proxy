@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import log from 'npmlog';
 import ruid from 'express-ruid';
 import { DataFactory, Parser, Store } from 'n3';
+import cors from 'cors';
 
 const { namedNode, quad } = DataFactory;
 
@@ -283,6 +284,8 @@ async function parse(rdfString, baseUri) {
     })
   });
 }
+
+app.use(cors())
 
 // Set up middleware
 app.use(await delegationProxy(
