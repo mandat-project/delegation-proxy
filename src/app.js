@@ -3,6 +3,9 @@ import { exportJWK, SignJWT, generateKeyPair, jwtVerify, decodeJwt, decodeProtec
 import { randomUUID } from 'crypto';
 import log from 'npmlog';
 import ruid from 'express-ruid';
+import { DataFactory, Parser, Store } from 'n3';
+
+const { namedNode, quad } = DataFactory;
 
 // Set log level
 log.level = 'verbose'
@@ -46,11 +49,11 @@ async function forwardRequest(req, res) {
 }
 
 // This function returns an Express.js middleware
-async function delegationProxy(webId, idp, client_id, client_secret) {
+async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
   log.verbose('SDS-D', 'Starting SDS-D middleware');
   // Logging in with Solid OIDC
 
-  log.verbose('SDS-D', `Logging in as ${webId}`);
+  log.verbose('SDS-D', `Logging in as ${delegatorWebId}`);
   // Create keypair for signing DPoPs
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const jwkPublicKey = await exportJWK(publicKey);
@@ -68,7 +71,7 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
   async function getCurrentAuthToken() {
     if(currentAuthToken && decodeJwt(currentAuthToken).exp > (Date.now() / 1000 + 60 * 9)) {
       // Still valid (plus one minute in the future), nothing to do
-      log.verbose('SDS-D', `Reusing existing auth token for ${webId}`);
+      log.verbose('SDS-D', `Reusing existing auth token for ${delegatorWebId}`);
     } else {
       // Create signed DPoP
       const dpop = await new SignJWT({
@@ -100,7 +103,7 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
       })
       ).json();
       log.silly('SDS-D', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
-      log.info('SDS-D', `Sucessfully logged in as ${webId}`);
+      log.info('SDS-D', `Sucessfully logged in as ${delegatorWebId}`);
       currentAuthToken = tokens['access_token'];
     }
 
@@ -167,8 +170,8 @@ async function delegationProxy(webId, idp, client_id, client_secret) {
       log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
 
       // We have an authenticated WebId \o/
-      const webId = payload_auth_token['webid'];
-      log.info(`${req.rid}`, `${webId} wants to send a ${req.method} request to ${requestUri}`);
+      const delegateWebId = payload_auth_token['webid'];
+      log.info(`${req.rid}`, `${delegateWebId} wants to send a ${req.method} request to ${requestUri}`);
 
       // Check whether the polices allow the request for the authenticated WebId
       let method;
@@ -247,27 +250,31 @@ const HttpMethod = {
   DELETE: 3
 }
 
-/*
-The SME Solid Pod contains policies like this:
-  <#roleCEO> frog:hasAccess [
-    http:mthd httpm:PUT ;
-    http:uri <https://bank.solid.aifb.kit.edu/offer/1>
-  ] .
+async function hasAccess(delegatorWebId, delegateWebId, uri, method, session) {
+  const profile = await fetch(delegatorWebId);
+  const quads = await parse(await profile.text(), delegatorWebId);
+  return quads.has(quad(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/org#hasMember'), namedNode(delegateWebId)));
+}
 
-and an organization ontology modeling which determines which WebId has which org:Role
+async function parse(rdfString, baseUri) {
+  return new Promise((resolve, reject) => {
+    const parser = new Parser({
+      baseIRI: baseUri
+    });
+    const store = new Store();
+    parser.parse(rdfString, (error, quad) => {
+      if(error) {
+        reject(error);
+        return;
+      }
+      if(quad) {
+        store.add(quad);
+      } else {
+        resolve(store);
+      }
 
-Parameters:
-  webId:  string
-  uri: string
-  method: HttpMethod 
-
-Return:
-  boolean
-*/
-async function hasAccess(webId, uri, method, session) {
-  // TODO for Apoorva
-  // for now:
-  return webId == 'https://tom.solid.aifb.kit.edu/profile/card#me' && uri == 'https://bank.solid.aifb.kit.edu/credits/offers/7b49ef42-45ef-4d1b-9234-a6d3e9875c79' && method == HttpMethod.GET;
+    })
+  });
 }
 
 // Set up middleware
