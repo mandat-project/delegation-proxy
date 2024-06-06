@@ -160,11 +160,18 @@ async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
       // Check whether URI and method in the DPoP match the requested URI and method
       const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
       // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
-      const requestUri = 'https://' + req.get('host') + req.path;
+      const host = req.query['host'];
+      if(!host) {
+        log.warn('Client did not specify "host" query parameter!')
+        res.status(400);
+        res.send('No "host" query parameter specified!');
+        return;
+      }
+      const requestUri = 'https://' + host + req.path;
       if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
         log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
+        res.status(403);
         res.send("Auth token invalid: Requested method or URI does not match!");
-        res.sendStatus(403);
         return;
       }
       log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
