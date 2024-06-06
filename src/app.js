@@ -3,10 +3,10 @@ import { exportJWK, SignJWT, generateKeyPair, jwtVerify, decodeJwt, decodeProtec
 import { randomUUID } from 'crypto';
 import log from 'npmlog';
 import ruid from 'express-ruid';
-import { DataFactory, Parser, Store } from 'n3';
+import { DataFactory, Parser, Store, Writer } from 'n3';
 import cors from 'cors';
 
-const { namedNode, quad } = DataFactory;
+const { literal, namedNode, quad } = DataFactory;
 
 // Set log level
 log.level = 'verbose'
@@ -26,9 +26,66 @@ app.use(ruid({
   prefixSeparator: ''
 }));
 
-async function forwardRequest(req, res) {
+async function getLoggingContainer(delegatorWebId) {
+  const profile = await fetch(delegatorWebId);
+  const store = await parse(await profile.text(), delegatorWebId);
+  const containers = store.getObjects(namedNode(delegatorWebId), namedNode('https://www.example.org/logs#loggingContainer'));
+  if(containers.length != 1) {
+    log.warn('Found ' + containers.length + ' logging containers in the profile document of ' + delegatorWebId + ', needed exactly one!');
+  } else {
+    log.verbose('Using logging container at ' + containers[0].value);
+  }
+  return containers[0].value;
+}
+
+async function sendLogs(loggingStore, loggingContainer) {
+  return new Promise((resolve, reject) => {
+    const writer = new Writer();
+    writer.addQuads(loggingStore.getQuads());
+    writer.end(async (error, result) => {
+      if(error) {
+        reject(error);
+      } else {
+        const proxy_dpop = await new SignJWT({
+          htu: loggingContainer,
+          htm: 'POST'
+        })
+        .setProtectedHeader({
+          alg: 'PS256',
+          typ: 'dpop+jwt',
+          jwk: jwkPublicKey
+        })
+        .setIssuedAt()
+        .setJti(randomUUID())
+        .sign(privateKey);
+        log.verbose(`${req.rid}`, `Created signed DPoP for request`);
+
+        const serverRes = await fetch(payload_dpop_proof['htu'], {
+          method: payload_dpop_proof['htm'],
+          headers: {
+              'DPoP': proxy_dpop,
+              'Authorization': 'DPoP ' + await getCurrentAuthToken()
+          }
+        });
+      }
+    });
+  })
+}
+
+async function logIncomingRequest(store, method, uri, delegateWebId, time) {
+  store.addQuads([
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)),
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegateWebId)),
+    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
+  ])
+}
+
+async function forwardRequest(requestUri, req, res) {
   // Make actual request
-  let serverRes = await fetch(req.url, {
+  let serverRes = await fetch(requestUri, {
     method: req.method,
     body: req.body,
     headers: req.headers
@@ -111,14 +168,92 @@ async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
     return currentAuthToken;
   }
 
+  async function getLoggingContainer(delegatorWebId) {
+    const profile = await fetch(delegatorWebId);
+    const store = await parse(await profile.text(), delegatorWebId);
+    const containers = store.getObjects(namedNode(delegatorWebId), namedNode('https://www.example.org/logs#loggingContainer'));
+    if(containers.length != 1) {
+      log.warn('Found ' + containers.length + ' logging containers in the profile document of ' + delegatorWebId + ', needed exactly one!');
+    } else {
+      log.verbose('SDS-D', 'Using logging container at ' + containers[0].value);
+    }
+    return containers[0].value;
+  }
+
+  async function sendLogs(rqid, loggingStore, loggingContainer) {
+    return new Promise((resolve, reject) => {
+      const writer = new Writer();
+      writer.addQuads(loggingStore.getQuads());
+      writer.end(async (error, result) => {
+        if(error) {
+          reject(error);
+        } else {
+          const proxy_dpop = await new SignJWT({
+            htu: loggingContainer,
+            htm: 'POST'
+          })
+          .setProtectedHeader({
+            alg: 'PS256',
+            typ: 'dpop+jwt',
+            jwk: jwkPublicKey
+          })
+          .setIssuedAt()
+          .setJti(randomUUID())
+          .sign(privateKey);
+
+          const serverRes = await fetch(loggingContainer, {
+            method: 'POST',
+            headers: {
+                'DPoP': proxy_dpop,
+                'Authorization': 'DPoP ' + await getCurrentAuthToken()
+            },
+            body: result
+          });
+          if(serverRes.status == 201) {
+            log.verbose(rqid, 'Created new log entry at ' + serverRes.headers.get('Location')) ;
+          } else {
+            log.warn(rqid, 'Could not create new log entry: ' + serverRes.status + ' ' + serverRes.statusText)
+          }
+        }
+      });
+    })
+  }
+
+  async function logIncomingRequest(store, method, uri, delegateWebId, time) {
+    store.addQuads([
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegateWebId)),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
+    ])
+  }
+
+  const loggingContainer = await getLoggingContainer(delegatorWebId);
+  const loggingStore = new Store();
+
   // Return actual middleware handler
   return async function delegationProxy(req, res, next) {
     log.verbose(`${req.rid}`, `Incoming request`);
+
+    // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
+    const host = req.query['host'];
+    if(!host) {
+      log.warn('Client did not specify "host" query parameter!')
+      res.status(400);
+      res.send('No "host" query parameter specified!');
+      return;
+    }
+    const requestUri = 'https://' + host + req.path;
+
     // Client is not authenticated with Solid OIDC
     // -> We are not responsible, just forward
     if(!req.headers['authorization'] || !req.headers['authorization'].startsWith('DPoP ') || !req.headers['dpop']) {
       log.info(`${req.rid}`, `No valid Solid OIDC headers, just forwarding request to ${req.originalUrl}`);
-      forwardRequest(req, res);
+      await logIncomingRequest(loggingStore, req.method, requestUri, 'http://xmlns.com/foaf/0.1/Agent', (new Date()).toISOString())
+      forwardRequest(requestUri, req, res);
+      await sendLogs(req.rid, loggingStore, loggingContainer);
       return;
     }
 
@@ -160,15 +295,6 @@ async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
 
       // Check whether URI and method in the DPoP match the requested URI and method
       const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
-      // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
-      const host = req.query['host'];
-      if(!host) {
-        log.warn('Client did not specify "host" query parameter!')
-        res.status(400);
-        res.send('No "host" query parameter specified!');
-        return;
-      }
-      const requestUri = 'https://' + host + req.path;
       if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
         log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
         res.status(403);
