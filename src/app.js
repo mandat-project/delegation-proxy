@@ -26,63 +26,6 @@ app.use(ruid({
   prefixSeparator: ''
 }));
 
-async function getLoggingContainer(delegatorWebId) {
-  const profile = await fetch(delegatorWebId);
-  const store = await parse(await profile.text(), delegatorWebId);
-  const containers = store.getObjects(namedNode(delegatorWebId), namedNode('https://www.example.org/logs#loggingContainer'));
-  if(containers.length != 1) {
-    log.warn('Found ' + containers.length + ' logging containers in the profile document of ' + delegatorWebId + ', needed exactly one!');
-  } else {
-    log.verbose('Using logging container at ' + containers[0].value);
-  }
-  return containers[0].value;
-}
-
-async function sendLogs(loggingStore, loggingContainer) {
-  return new Promise((resolve, reject) => {
-    const writer = new Writer();
-    writer.addQuads(loggingStore.getQuads());
-    writer.end(async (error, result) => {
-      if(error) {
-        reject(error);
-      } else {
-        const proxy_dpop = await new SignJWT({
-          htu: loggingContainer,
-          htm: 'POST'
-        })
-        .setProtectedHeader({
-          alg: 'PS256',
-          typ: 'dpop+jwt',
-          jwk: jwkPublicKey
-        })
-        .setIssuedAt()
-        .setJti(randomUUID())
-        .sign(privateKey);
-        log.verbose(`${req.rid}`, `Created signed DPoP for request`);
-
-        const serverRes = await fetch(payload_dpop_proof['htu'], {
-          method: payload_dpop_proof['htm'],
-          headers: {
-              'DPoP': proxy_dpop,
-              'Authorization': 'DPoP ' + await getCurrentAuthToken()
-          }
-        });
-      }
-    });
-  })
-}
-
-async function logIncomingRequest(store, method, uri, delegateWebId, time) {
-  store.addQuads([
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)),
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegateWebId)),
-    quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
-  ])
-}
-
 async function forwardRequest(requestUri, req, res) {
   // Make actual request
   let serverRes = await fetch(requestUri, {
@@ -107,9 +50,14 @@ async function forwardRequest(requestUri, req, res) {
 }
 
 // This function returns an Express.js middleware
-async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
+async function delegationProxy(delegatorWebId, client_id, client_secret) {
   log.verbose('SDS-D', 'Starting SDS-D middleware');
   // Logging in with Solid OIDC
+
+  var idp = await getOIDCIssuer(delegatorWebId);
+  if(idp.endsWith('/')) {
+    idp = idp.substring(0, idp.length - 1);
+  }
 
   log.verbose('SDS-D', `Logging in as ${delegatorWebId}`);
   // Create keypair for signing DPoPs
@@ -166,6 +114,18 @@ async function delegationProxy(delegatorWebId, idp, client_id, client_secret) {
     }
 
     return currentAuthToken;
+  }
+
+  async function getOIDCIssuer(delegatorWebId) {
+    const profile = await fetch(delegatorWebId);
+    const store = await parse(await profile.text(), delegatorWebId);
+    const issuers = store.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/terms#oidcIssuer'));
+    if(issuers.length != 1) {
+      log.warn('Found ' + issuers.length + ' OIDC issuers in the profile document of ' + delegatorWebId + ', needed exactly one!');
+    } else {
+      log.verbose('SDS-D', 'Using OIDC issuer at ' + issuers[0].value + ' for authenticating the delegator');
+    }
+    return issuers[0].value;
   }
 
   async function getLoggingContainer(delegatorWebId) {
@@ -416,7 +376,6 @@ app.use(cors())
 // Set up middleware
 app.use(await delegationProxy(
   'https://sme.solid.aifb.kit.edu/profile/card#me',
-  'https://solid.aifb.kit.edu',
   'delegation_proxy_4ae7b58d-3632-41f3-b495-7711c5ad4839',
   '43a227e4b303d1bb13ffc01fdec4ca9ec7120326684551e3878dbd50c2539abbb31c853fca6455ab43f34125e990f0a02fdb71a1765076a0c80577d2ac3d6e58'
 ));
