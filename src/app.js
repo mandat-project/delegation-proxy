@@ -246,7 +246,6 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
     if(!req.headers['authorization'] || !req.headers['authorization'].startsWith('DPoP ') || !req.headers['dpop']) {
       log.info(`${req.rid}`, `No valid Solid OIDC headers, just forwarding request to ${req.originalUrl}`);
       await logIncomingRequest(loggingStore, req.method, requestUri, 'http://xmlns.com/foaf/0.1/Agent', (new Date()).toISOString())
-      forwardRequest(requestUri, req, res);
       await sendLogs(req.rid, loggingStore, loggingContainer);
       return;
     }
