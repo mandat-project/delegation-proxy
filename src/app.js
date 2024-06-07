@@ -185,17 +185,50 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
       quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
       quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)),
+      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)), //has prov:Activity as range...?
       quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegateWebId)),
       quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
     ])
   }
 
-  const loggingContainer = await getLoggingContainer(delegatorWebId);
-  const loggingStore = new Store();
+  async function logRDPActivity(store, delegateWebId, time, primaryEntity, policyResult) {
+    store.addQuads([
+      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity')),
+      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#startedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
+      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#wasAssociatedWith'), namedNode(delegateWebId)),
+      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#wasStartedBy'), namedNode(primaryEntity)), 
+      
+      //missing: which policy was evaluated
+      quad(namedNode('#RDPActivity'), namedNode('https://www.example.org/rdpVocab#policyEvaluation'), literal(policyResult, namedNode('http://www.w3.org/2001/XMLSchema#boolean'))), //connect to policy?
+    ])
+  }
+  
+  async function logRDPActivityEndTime(store, activityUri, endTime) {
+    store.addQuads([
+      quad(namedNode(activityUri), namedNode('http://www.w3.org/ns/prov#endedAtTime'), literal(endTime, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
+    ])
+  }
 
+  async function logRDPRequest(store, method, uri, delegatorWebId, time) {
+    store.addQuads([
+      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#generated'), namedNode('#secondaryRequest')),
+
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode("#RDPActivity")),
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegatorWebId)), //now as delegator
+      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
+    ])
+  }
+ 
+
+
+  const loggingContainer = await getLoggingContainer(delegatorWebId);
+  
   // Return actual middleware handler
   return async function delegationProxy(req, res, next) {
+    const loggingStore = new Store();
     log.verbose(`${req.rid}`, `Incoming request`);
 
     // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
@@ -284,13 +317,23 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
           method = HttpMethod.POST;
           break;
       }
+      await logIncomingRequest(loggingStore, req.method, requestUri, delegateWebId, (new Date()).toISOString())
+      const requestEntity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity'))[0]
+
       if(!(await hasAccess(delegatorWebId, delegateWebId, requestUri, method))) {
         log.warn(`${req.rid}`, `Access denied by policies!`);
+
+        // vvv supposed to be only one..?
+        await logRDPActivity(loggingStore, delegateWebId, (new Date()).toISOString(), requestEntity.value, 'false') //RDP Activity started and soon to be ended
+        const activity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
+        await logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString()) 
+        await sendLogs(req.rid, loggingStore, loggingContainer);
         res.status(403);
         res.send("Access denied by policies!");
         return;
       }
 
+      await logRDPActivity(loggingStore, delegateWebId, (new Date()).toISOString(), requestEntity.value, 'true') //RDP Activity started
       // Create and sign a DPoP for the request
       const proxy_dpop = await new SignJWT({
         htu: payload_dpop_proof['htu'],
@@ -314,6 +357,14 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
         }
       });
       log.verbose(`${req.rid}`, `Sent request, received response`);
+      
+      await logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString()) 
+      const activity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
+
+      await logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString())
+
+      await sendLogs(req.rid, loggingStore, loggingContainer);
+
 
       // Copy header and status to client response
       res.set(Object.fromEntries(serverRes.headers));
