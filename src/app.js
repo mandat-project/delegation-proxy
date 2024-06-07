@@ -5,6 +5,7 @@ import log from 'npmlog';
 import ruid from 'express-ruid';
 import { DataFactory, Parser, Store, Writer } from 'n3';
 import cors from 'cors';
+import process from 'process';
 
 const { literal, namedNode, quad } = DataFactory;
 
@@ -375,9 +376,9 @@ app.use(cors())
 
 // Set up middleware
 app.use(await delegationProxy(
-  'https://sme.solid.aifb.kit.edu/profile/card#me',
-  'delegation_proxy_4ae7b58d-3632-41f3-b495-7711c5ad4839',
-  '43a227e4b303d1bb13ffc01fdec4ca9ec7120326684551e3878dbd50c2539abbb31c853fca6455ab43f34125e990f0a02fdb71a1765076a0c80577d2ac3d6e58'
+  process.env.DELEGATOR_WEB_ID,
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET
 ));
 
 export default app;
