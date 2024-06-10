@@ -357,12 +357,17 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       });
       log.verbose(`${req.rid}`, `Sent request, received response`);
       
-      await logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString()) 
-      const activity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
-
-      await logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString())
-
-      await sendLogs(req.rid, loggingStore, loggingContainer);
+      // synchronous call with await times out, therefore do it async
+      logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString())
+        .then( () => {
+      		return loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
+	})
+	.then((activity) => {
+		 return logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString())
+	})
+	.then(() => {
+		return sendLogs(req.rid, loggingStore, loggingContainer)
+	})
 
 
       // Copy header and status to client response
