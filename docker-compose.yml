@@ -1,0 +1,34 @@
+version: '3.7'
+services:
+
+  bank:
+    build: .
+    restart: always
+    ports:
+      - 1081:3000
+    environment:
+      - DELEGATOR_WEB_ID="https://bank.solid.aifb.kit.edu/profile/card#me"
+      - CLIENT_ID="delegation_proxy_1b5868ca-443a-4c41-9af4-a8dc17d729f6"
+      - CLIENT_SECRET="9bb6ebada1a0932a2d35a2e540e44511dadaf193279994cc244729942c1aca05f53e395d14f2cbad24a35459c341dd1dbc8ad717949548fbb1b89a850276821b"
+
+  tax:
+    build: .
+    restart: always
+    ports:
+      - 1082:3000
+    environment:
+      - DELEGATOR_WEB_ID="https://tax.solid.aifb.kit.edu/profile/card#me"
+      - CLIENT_ID="delegation_proxy_b9f496d7-02b0-4ce9-afbe-ab0d946cbb6d"
+      - CLIENT_SECRET="2ccaecdfbe8a1d072bbad5ca874d3d141320cb11e2c6179c3424abd6e60877647b765ff7ce9c08291e3b249591a91a4b1890def590edabebfcc4886935a22b1b"
+
+  sme:
+    build: .
+    restart: always
+    ports:
+      - 1083:3000
+    environment:
+      - DELEGATOR_WEB_ID="https://sme.solid.aifb.kit.edu/profile/card#me"
+      - CLIENT_ID="delegation_proxy_4ae7b58d-3632-41f3-b495-7711c5ad4839"
+      - CLIENT_SECRET="43a227e4b303d1bb13ffc01fdec4ca9ec7120326684551e3878dbd50c2539abbb31c853fca6455ab43f34125e990f0a02fdb71a1765076a0c80577d2ac3d6e58"
+
+ 
