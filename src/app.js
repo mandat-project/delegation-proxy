@@ -348,12 +348,17 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       .sign(privateKey);
       log.verbose(`${req.rid}`, `Created signed DPoP for request`);
 
-      const serverRes = await fetch(payload_dpop_proof['htu'], {
+      const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+      const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+      log.verbose(req.body)
+	const serverRes = await fetch(payload_dpop_proof['htu'], {
         method: payload_dpop_proof['htm'],
         headers: {
+            ...filteredHeaders,
             'DPoP': proxy_dpop,
             'Authorization': 'DPoP ' + await getCurrentAuthToken()
-        }
+        },
+        body: req.body ? req.body : undefined
       });
       log.verbose(`${req.rid}`, `Sent request, received response`);
       
