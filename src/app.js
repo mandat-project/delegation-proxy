@@ -381,12 +381,14 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       res.status(serverRes.status);
 
       // Copy body to client response
-      let reader = serverRes.body.getReader();
-      let done = false
-      let value = '';
-      while(!done) {
-        res.write(value);
-        ({ value, done } = await reader.read());
+      if (serverRes.body) {
+        let reader = serverRes.body.getReader();
+        let done = false
+        let value = '';
+        while(!done) {
+          res.write(value);
+          ({ value, done } = await reader.read());
+        }
       }
       res.end();
       log.verbose(`${req.rid}`, `Finished returning response`);
