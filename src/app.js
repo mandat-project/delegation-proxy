@@ -6,6 +6,7 @@ import ruid from 'express-ruid';
 import { DataFactory, Parser, Store, Writer } from 'n3';
 import cors from 'cors';
 import process from 'process';
+import bodyParser from 'body-parser';
 
 const { literal, namedNode, quad } = DataFactory;
 
@@ -350,18 +351,18 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
 
       const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
       const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
-      log.verbose(req.body)
-	const serverRes = await fetch(payload_dpop_proof['htu'], {
+
+      const serverRes = await fetch(payload_dpop_proof['htu'], {
         method: payload_dpop_proof['htm'],
         headers: {
             ...filteredHeaders,
             'DPoP': proxy_dpop,
             'Authorization': 'DPoP ' + await getCurrentAuthToken()
         },
-        body: req.body ? req.body : undefined
+        body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
       });
       log.verbose(`${req.rid}`, `Sent request, received response`);
-      
+
       // synchronous call with await times out, therefore do it async
       logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString())
         .then( () => {
@@ -433,6 +434,13 @@ async function parse(rdfString, baseUri) {
 }
 
 app.use(cors())
+
+// body parser must be set before middleware
+app.use(bodyParser.raw({
+  inflate: true,
+  limit: '100Mb',
+  type: '*/*'
+}));
 
 // Set up middleware
 app.use(await delegationProxy(
