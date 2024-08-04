@@ -1,0 +1,201 @@
+@prefix wild: <http://purl.org/wild/vocab#> .
+@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# Rule for default open status when no signature is present
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature frog:noSignature .
+}
+=>
+{
+  ?activityInstance frog:approval frog:open .
+} .
+
+# Rule for atomic activity instance approval (approved if signature is true)
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature ?signature .
+  ?signature a frog:Signature ;
+             frog:approval true .
+}
+=>
+{
+  ?activityInstance frog:approval frog:approved .
+} .
+
+# Rule for atomic activity instance approval (not approved if signature is false)
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature ?signature .
+  ?signature a frog:Signature ;
+             frog:approval false .
+}
+=>
+{
+  ?activityInstance frog:approval frog:notApproved .
+} .
+
+# Rule for collecting approvals of child activities for parallel activities
+{
+  ?parActivityInstance a wild:ActivityInstance ;
+                       wild:activityInstanceOf ?parActivityType ;
+                       wild:hasChildActivities ?childList .
+}
+=>
+{
+  ?parActivityInstance frog:collectApprovals ?childList .
+} .
+
+# Base case: An empty list (rdf:nil) means the activity is approved for parallel activities
+{
+  ?parActivityInstance a wild:ActivityInstance ;
+                       wild:activityInstanceOf ?parActivityType ;
+                       frog:collectApprovals rdf:nil .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:approved .
+} .
+
+# If there is only one child activity for parallel activities
+{
+  ?parActivityInstance frog:collectApprovals (?onlyChild) .
+  ?onlyChild frog:approval ?onlyChildApproval .
+}
+=>
+{
+  ?parActivityInstance frog:approval ?onlyChildApproval .
+} .
+
+# Rules for handling approval combinations for first two child activities in parallel activities
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:approved .
+  ?second frog:approval frog:approved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:approved .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:approved .
+  ?second frog:approval frog:notApproved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:notApproved .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:approved .
+  ?second frog:approval frog:open .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:open .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:notApproved .
+  ?second frog:approval frog:open .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:notApproved .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:notApproved .
+  ?second frog:approval frog:approved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:notApproved .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:notApproved .
+  ?second frog:approval frog:notApproved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:notApproved .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:open .
+  ?second frog:approval frog:open .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:open .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:open .
+  ?second frog:approval frog:approved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:open .
+} .
+
+{
+  ?parActivityInstance frog:collectApprovals (?first ?second) .
+  ?first frog:approval frog:open .
+  ?second frog:approval frog:notApproved .
+}
+=>
+{
+  ?parActivityInstance frog:approval frog:notApproved .
+} .
+
+# Recursive determination of the rest of the list approval status for parallel activities
+# Recursive determination of the rest of the list approval status for parallel activities
+{
+  ?parActivityInstance frog:collectApprovals ?childList .
+  ?childList rdf:rest ?remaining .
+  ?childList rdf:first ?first .
+  ?first frog:approval ?firstApproval .
+  {
+    ?remaining rdf:rest rdf:nil .
+    ?remaining rdf:first ?second .
+    ?second frog:approval ?secondApproval .
+    {
+      ?remaining rdf:rest rdf:nil .
+      ?remaining rdf:first ?nextChild .
+      ?nextChild frog:approval ?nextApproval .
+    }
+  }
+}
+=>
+{
+  ?parActivityInstance frog:collectApprovals (?second ?remaining) .
+} .
+
+=>
+{
+  ?parActivityInstance frog:collectApprovals (?nextChild ?remaining) .
+} .
+
+# Recursive termination rule for parallel activities
+{
+  ?parActivityInstance frog:collectApprovals (?lastChild rdf:nil) .
+  ?lastChild frog:approval ?lastApproval .
+}
+=>
+{
+  ?parActivityInstance frog:approval ?lastApproval .
+} .

@@ -1,0 +1,109 @@
+@prefix wild: <http://purl.org/wild/vocab#> .
+@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# Rule for default open status when no signature is present
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature frog:noSignature .
+}
+=>
+{
+  ?activityInstance frog:approval frog:open .
+} .
+
+# Rule for atomic activity instance approval (approved if signature is true)
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature ?signature .
+  ?signature a frog:Signature ;
+             frog:approval true .
+}
+=>
+{
+  ?activityInstance frog:approval frog:approved .
+} .
+
+# Rule for atomic activity instance approval (not approved if signature is false)
+{
+  ?activityInstance a wild:ActivityInstance ;
+                    wild:activityInstanceOf ?someAtomicActivity ;
+                    frog:signature ?signature .
+  ?signature a frog:Signature ;
+             frog:approval false .
+}
+=>
+{
+  ?activityInstance frog:approval frog:notApproved .
+} .
+
+# Collect approvals of child activities for sequential activities
+{
+  ?seqActivityInstance a wild:ActivityInstance ;
+                       wild:activityInstanceOf ?seqActivityType ;
+                       wild:hasChildActivities ?childList .
+}
+=>
+{
+  ?seqActivityInstance frog:collectApprovals ?childList .
+} .
+
+# Base case: An empty list (rdf:nil) means the activity is approved
+{
+  ?seqActivityInstance a wild:ActivityInstance ;
+                       wild:activityInstanceOf ?seqActivityType ;
+                       frog:collectApprovals rdf:nil .
+}
+=>
+{
+  ?seqActivityInstance frog:approval frog:approved .
+} .
+
+# If the first child is not approved, the sequential activity is not approved
+{
+  ?seqActivityInstance frog:collectApprovals ?childList .
+  ?childList rdf:first ?child ;
+             rdf:rest ?rest .
+  ?child frog:approval frog:notApproved .
+}
+=>
+{
+  ?seqActivityInstance frog:approval frog:notApproved .
+} .
+
+# If the first child is open, the sequential activity is open
+{
+  ?seqActivityInstance frog:collectApprovals ?childList .
+  ?childList rdf:first ?child ;
+             rdf:rest ?rest .
+  ?child frog:approval frog:open .
+}
+=>
+{
+  ?seqActivityInstance frog:approval frog:open .
+} .
+
+# If the first child is approved, continue checking the rest
+{
+  ?seqActivityInstance frog:collectApprovals ?childList .
+  ?childList rdf:first ?child ;
+             rdf:rest ?rest .
+  ?child frog:approval frog:approved .
+}
+=>
+{
+  ?seqActivityInstance frog:collectApprovals ?rest .
+} .
+
+
+# Recursive determination of the rest of the list approval status
+{
+  ?seqActivityInstance frog:collectApprovals ?rest .
+  ?rest frog:approval ?restApproval .
+}
+=>
+{
+  ?seqActivityInstance frog:approval ?restApproval .
+} .

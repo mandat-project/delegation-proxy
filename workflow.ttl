@@ -1,0 +1,71 @@
+@prefix wild: <http://purl.org/wild/vocab#> .
+@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix org: <http://www.w3.org/ns/org#> .
+
+# Signatures
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureFalse> a frog:Signature ;
+    frog:approval false .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureTrue> a frog:Signature ;
+    frog:approval true .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureFalse> a frog:Signature ;
+    frog:approval false .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureTrue> a frog:Signature ;
+    frog:approval true .
+
+# Atomic activity instances with signatures
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance2> ;
+    frog:signature frog:noSignature .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance3> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureFalse> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance1> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureTrue> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance1> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance2> ;
+    frog:signature frog:noSignature .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance3> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureFalse> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance1> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureTrue> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance4> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    wild:inWorkflowInstance <https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance3> ;
+    frog:signature frog:noSignature .
+
+
+# Workflow Model Definition
+<https://sme.solid.aifb.kit.edu/workflow#financeDepLead> a wild:WorkflowModel ;
+    wild:hasBehaviour <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> .
+
+# Workflow Instances
+<https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance1> a wild:WorkflowInstance ;
+    wild:workflowInstanceOf <https://sme.solid.aifb.kit.edu/workflow#financeDepLead> ;
+    frog:approval rdf:nil .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance2> a wild:WorkflowInstance ;
+    wild:workflowInstanceOf <https://sme.solid.aifb.kit.edu/workflow#financeDepLead> ;
+    frog:approval rdf:nil .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/workflow.ttl#workflow-instance3> a wild:WorkflowInstance ;
+    wild:workflowInstanceOf <https://sme.solid.aifb.kit.edu/workflow#financeDepLead> ;
+    frog:approval rdf:nil .

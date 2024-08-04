@@ -7,6 +7,7 @@
     "@inrupt/solid-client-authn-node": "^1.17.5",
     "axios": "^1.6.2",
     "express": "^4.18.2",
+    "eyereasoner": "^16.4.3",
     "jsonwebtoken": "^9.0.2",
     "n3": "^1.17.3",
     "node-fetch": "^3.3.2",

@@ -1,0 +1,71 @@
+Child Approvals (Sequencial activities)
+Makes sense:
+[Approved, Approved, Approved] => Approved
+[Open, Open, Open] => Open
+[Approved, NotApproved, Open] => NotApproved
+[NotApproved, Open, Open] => NotApproved
+[Approved, Open, Open] => Open
+
+Does not make sense for sequencial activities:
+[NotApproved, Approved] => NotApproved
+[Approved, NotApproved] => NotApproved
+[NotApproved, NotApproved] => NotApproved
+[Open, Approved] => open
+[Open, NotApproved] => open
+[Open, Open, Approved] => open
+[NotApproved, NotApproved, Approved] => NotApproved
+[Approved, Open, NotApproved, NotApproved] => open
+[Open, NotApproved, NotApproved] => open
+
+
+
+
+
+
+Child Approvals (Parallel activities)
+[Approved, Approved, Approved] => Approved
+[Open, Open, Open] => Open
+[Approved, NotApproved, Open] => NotApproved
+[NotApproved, Open, Open] => NotApproved
+[Approved, Open, Open] => Open
+[NotApproved, Approved] => NotApproved
+[Approved, NotApproved] => NotApproved
+[NotApproved, NotApproved] => NotApproved
+[Open, Approved] => Open
+[Open, NotApproved] => NotApproved
+[Open, Open, Approved] => open
+[NotApproved, NotApproved, Approved] => NotApproved
+[Approved, Open, NotApproved, NotApproved] => NotApproved
+[Open, NotApproved, NotApproved] => NotApproved
+
+
+
+
+Parallel activities cases:
+
+2 child activities:
+[Approved, Approved] => Approved
+[Approved, NotApproved] => NotApproved
+[Approved, Open] => open
+[NotApproved, open] => NotApproved
+[NotApproved, Approved] => NotApproved
+[NotApproved, NotApproved] => NotApproved
+[Open, Open] => open
+[Open, Approved] => open
+[Open, NotApproved] => NotApproved
+
+
+3 child activities
+[Open, Open, Approved] => open
+[NotApproved, NotApproved, Approved] => NotApproved
+[Open, NotApproved, NotApproved] => NotApproved
+[Approved, Approved, Approved] => Approved
+[Open, Approved, Approved] => open
+[NotApproved, NotApproved, NotApproved] => NotApproved
+[Approved, Approved, NotApproved] => NotApproved
+[Open, Open, NotApproved] => NotApproved
+[Approved, Open, Approved] => open
+[Open, Open, Open] => open
+[NotApproved, Open, Approved] => NotApproved
+[NotApproved, NotApproved, Open] => NotApproved
+
