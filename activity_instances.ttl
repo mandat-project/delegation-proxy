@@ -1,0 +1,107 @@
+@prefix wild: <http://purl.org/wild/vocab#> .
+@prefix frog: <https://solid.ti.rw.fau.de/public/ns/frog#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix org: <http://www.w3.org/ns/org#> .
+
+# Signatures
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureFalse> a frog:Signature ;
+    frog:approval false .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureTrue> a frog:Signature ;
+    frog:approval true .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureFalse> a frog:Signature ;
+    frog:approval false .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureTrue> a frog:Signature ;
+    frog:approval true .
+
+# Atomic activity instances with signatures
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    frog:signature frog:noSignature .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureFalse> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#ceoSignature> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoSignatureTrue> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance1> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    frog:signature frog:noSignature .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureFalse> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    frog:signature <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderSignatureTrue> .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance4> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#financeDepartmentLeaderSignature> ;
+    frog:signature frog:noSignature .
+
+# Sequential and Parallel Activity Instances
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity1> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity2> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity3> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance1> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity4> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity5> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity6> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity7> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity8> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity9> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance3> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity10> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance3>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance4>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance2> ) .
+
+<https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#seqactivity11> a wild:ActivityInstance ;
+    wild:activityInstanceOf <https://sme.solid.aifb.kit.edu/activities#firstCEOSecondLeader> ;
+    wild:hasChildActivities ( <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance1>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#ceoActivityInstance2>
+                              <https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl#financeLeaderActivityInstance4> ) .

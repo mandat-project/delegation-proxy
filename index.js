@@ -1,11 +1,28 @@
 
-const { SME_EMAIL, SME_PASSWORD, OIDC_NAME, OIDC_USER, POD_URL, POD_URL_TEST} = require('./constants');
+const {
+  SME_EMAIL,
+  SME_PASSWORD,
+  OIDC_NAME,
+  OIDC_USER,
+  POD_URL,
+  POD_URL_TEST,
+  POD_WORKFLOW_URL,
+  POD_FINANCE_URL,
+  POD_ASSET_URL,
+  POD_BANK_URL,
+  POD_ACTIVITIES_URL,
+  ACTIVITY_INSTANCES_URL
+} = require('./constants');
+const fs = require('fs');
+const path = require('path');
 const { calculateJWKThumbprint }  = require('./utils');
 const express = require('express');
 const { Session } = require('@inrupt/solid-client-authn-node');
 const N3 = require('n3');
 const { DataFactory } = N3;
 const { namedNode} = DataFactory;
+
+const { n3reasoner } = require('eyereasoner');
 
 const jwt = require('jsonwebtoken');
 
@@ -82,7 +99,37 @@ const forwardRequestToPodAsSME = async (req, res, next, url) => {
 async function hasAccess(req, res, webId, uri, method) {
   // TODO for Apoorva
   console.log("URI to check access", uri)
+  const solidPodActivity = await fetchSolidPodInfo(req, res, webId, POD_ACTIVITIES_URL);
+  // console.log(solidPodActivity)
+   const solidPodWorkflow = await fetchSolidPodInfo(req, res, webId, POD_WORKFLOW_URL);
+  // console.log(typeof (solidPodWorkflow))
+  const solidPodFinance = await fetchSolidPodInfo(req, res, webId, POD_FINANCE_URL);
+  // console.log(solidPodFinance)
+  const solidPodAsset = await fetchSolidPodInfo(req, res, webId, POD_ASSET_URL);
+  // console.log(solidPodAsset)
+  const activityInstances = await fetchSolidPodInfo(req, res, webId, ACTIVITY_INSTANCES_URL);
+  // console.log(activityInstances)
+
+  const activitiesInstancesRulesPath = path.join(__dirname, '/rules/n3_rules.n3');
+  const activitiesInstancesRules = fs.readFileSync(activitiesInstancesRulesPath, 'utf-8');
+  const activities_datastring = `${activityInstances}\n${activitiesInstancesRules}`;
+
+// The result of the query (as a string)
+  const resultString = await n3reasoner(activities_datastring);
+
+  console.log(resultString)
   return await checkSolidPodAccess(req, res, webId, uri, method);
+
+  //
+  // 1. then write the rules for sequencial activity
+  //
+}
+
+async function fetchSolidPodInfo(req, res, webId, podEndpoint) {
+  const sme_response = await req.smeSession.fetch(`${podEndpoint}`);
+  const rdfData = await sme_response.text();
+  // Parse RDF data
+  return rdfData
 }
 
 async function checkSolidPodAccess(req, res, webId, uri, method) {
@@ -100,11 +147,10 @@ async function checkSolidPodAccess(req, res, webId, uri, method) {
 
 
 async function fetchSolidPodPolicies(req, res, webId) {
-  const podEndpoint = 'https://sme.solid.aifb.kit.edu/organization/bank.ttl';
+  const podEndpoint = POD_BANK_URL;
   const sme_response = await req.smeSession.fetch(`${podEndpoint}`);
   const rdfData = await sme_response.text();
   // Parse RDF data
-  console.log(rdfData)
   const solidPodPolicies = parseRdfDataForWebID(rdfData, webId);
   return solidPodPolicies
 }
