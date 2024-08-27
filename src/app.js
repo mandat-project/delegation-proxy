@@ -28,31 +28,8 @@ app.use(ruid({
   prefixSeparator: ''
 }));
 
-async function forwardRequest(requestUri, req, res) {
-  // Make actual request
-  let serverRes = await fetch(requestUri, {
-    method: req.method,
-    body: req.body,
-    headers: req.headers
-  });
-
-  // Copy header and status
-  res.set(Object.fromEntries(serverRes.headers));
-  res.status(serverRes.status);
-
-  // Copy body
-  let reader = serverRes.body.getReader();
-  let done = false
-  let value = '';
-  while(!done) {
-    res.write(value);
-    ({ value, done } = await reader.read());
-  }
-  res.end();
-}
-
 // This function returns an Express.js middleware
-async function delegationProxy(delegatorWebId, client_id, client_secret) {
+async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegistryUri) {
   log.verbose('SDS-D', 'Starting SDS-D middleware');
   // Logging in with Solid OIDC
 
@@ -222,13 +199,58 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
     ])
   }
- 
 
+  async function makeAuthenticatedRequestToStore(uri, method) {
+    return new Promise(async (resolve, reject) => {
+      const store = new Store();
+      const parser = new Parser({
+        baseIRI: uri
+      });
+
+      // Create and sign a DPoP for the request
+      const proxy_dpop = await new SignJWT({
+        htu: uri,
+        htm: method
+      })
+      .setProtectedHeader({
+        alg: 'PS256',
+        typ: 'dpop+jwt',
+        jwk: jwkPublicKey
+      })
+      .setIssuedAt()
+      .setJti(randomUUID())
+      .sign(privateKey);
+
+      const serverRes = await fetch(uri, {
+        method: method,
+        headers: {
+            'DPoP': proxy_dpop,
+            'Authorization': 'DPoP ' + await getCurrentAuthToken()
+        }
+      });
+      parser.parse(await serverRes.text(), (error, quad) => {
+        if(quad) {
+          store.addQuad(quad);
+        } else {
+          resolve(store);
+        }
+      });
+    });
+  }
 
   const loggingContainer = await getLoggingContainer(delegatorWebId);
+
+  // Check which resources we have to facade
+  let facadeRegistryStore = await makeAuthenticatedRequestToStore(facadeRegistryUri, 'GET');
+  let toFacade = facadeRegistryStore.getObjects(null, namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
+  let facade = new Map();
+  for(let tF of toFacade) {
+    let tFStore = await makeAuthenticatedRequestToStore(tF, 'GET');
+    tFStore.getObjects(null, namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(tF, facadeRegistryUri), nn.value]).forEach(r => facade.set(...r));
+  }
   
   // Return actual middleware handler
-  return async function delegationProxy(req, res, next) {
+  return async function reverseProxy(req, res, next) {
     const loggingStore = new Store();
     log.verbose(`${req.rid}`, `Incoming request`);
 
@@ -240,163 +262,152 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       res.send('No "host" query parameter specified!');
       return;
     }
-    const requestUri = 'https://' + host + req.path;
+    const requestUri = 'https://' + host;
 
-    // Client is not authenticated with Solid OIDC
-    // -> We are not responsible, just forward
-    if(!req.headers['authorization'] || !req.headers['authorization'].startsWith('DPoP ') || !req.headers['dpop']) {
-      log.info(`${req.rid}`, `No valid Solid OIDC headers, just forwarding request to ${req.originalUrl}`);
-      await logIncomingRequest(loggingStore, req.method, requestUri, 'http://xmlns.com/foaf/0.1/Agent', (new Date()).toISOString())
-      await sendLogs(req.rid, loggingStore, loggingContainer);
-      return;
-    }
+    // Check whether request URI is facaded
+    if(facade.has(requestUri)) {
+      // Get auth info from clients request
+      const auth_token = req.headers['authorization'].replace('DPoP ','');
+      const dpop_proof = req.headers['dpop'];
 
-    // Get auth info from clients request
-    const auth_token = req.headers['authorization'].replace('DPoP ','');
-    const dpop_proof = req.headers['dpop'];
-
-    try {
-      const issuer = decodeJwt(auth_token)['iss'];
-      // Invalid auth token
-      if(!issuer) {
-        res.status(403);
-        log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
-        res.send("Auth token invalid: No issuer!");
-        return;
-      }
-
-      // Get public key of IdP used for signing the auth token
-      const jwks_endpoint = (await (await fetch(issuer + '.well-known/openid-configuration')).json())['jwks_uri'];
-      const jwks = await createRemoteJWKSet(new URL(jwks_endpoint));
-      log.verbose(`${req.rid}`, `Retrieved signing keys from IdP's JWKs endpoint ${jwks_endpoint}`);
-
-      // Verify access token with public key of IdP
-      const { payload: payload_auth_token } = await jwtVerify(auth_token, jwks);
-      log.verbose(`${req.rid}`, `Auth token signature verified`);
-
-      // Get key the DPoP token should be signed with
-      const client_key_thumbprint = payload_auth_token['cnf']['jkt']
-      const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
-
-      // Check whether the DPoP signing key matches the auth token thumbprint
-      if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
-        log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
-        res.send("DPoP invalid: Thumbprint not matching signing key!");
-        res.sendStatus(403);
-        return;
-      }
-      log.verbose(`${req.rid}`, `Verified that DPoP signature key match thumbprint in auth token`);
-
-      // Check whether URI and method in the DPoP match the requested URI and method
-      const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
-      if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
-        log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
-        res.status(403);
-        res.send("Auth token invalid: Requested method or URI does not match!");
-        return;
-      }
-      log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
-
-      // We have an authenticated WebId \o/
-      const delegateWebId = payload_auth_token['webid'];
-      log.info(`${req.rid}`, `${delegateWebId} wants to send a ${req.method} request to ${requestUri}`);
-
-      // Check whether the polices allow the request for the authenticated WebId
-      let method;
-      switch(req.method) {
-        case 'GET':
-          method = HttpMethod.GET;
-          break;
-        case 'POST':
-          method = HttpMethod.POST;
-          break;
-        case 'PUT':
-          method = HttpMethod.PUT;
-          break;
-        case 'POST':
-          method = HttpMethod.POST;
-          break;
-      }
-      await logIncomingRequest(loggingStore, req.method, requestUri, delegateWebId, (new Date()).toISOString())
-      const requestEntity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity'))[0]
-
-      if(!(await hasAccess(delegatorWebId, delegateWebId, requestUri, method))) {
-        log.warn(`${req.rid}`, `Access denied by policies!`);
-
-        // vvv supposed to be only one..?
-        await logRDPActivity(loggingStore, delegateWebId, (new Date()).toISOString(), requestEntity.value, 'false') //RDP Activity started and soon to be ended
-        const activity = loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
-        await logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString()) 
-        await sendLogs(req.rid, loggingStore, loggingContainer);
-        res.status(403);
-        res.send("Access denied by policies!");
-        return;
-      }
-
-      await logRDPActivity(loggingStore, delegateWebId, (new Date()).toISOString(), requestEntity.value, 'true') //RDP Activity started
-      // Create and sign a DPoP for the request
-      const proxy_dpop = await new SignJWT({
-        htu: payload_dpop_proof['htu'],
-        htm: payload_dpop_proof['htm']
-      })
-      .setProtectedHeader({
-        alg: 'PS256',
-        typ: 'dpop+jwt',
-        jwk: jwkPublicKey
-      })
-      .setIssuedAt()
-      .setJti(randomUUID())
-      .sign(privateKey);
-      log.verbose(`${req.rid}`, `Created signed DPoP for request`);
-
-      const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-      const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
-
-      const serverRes = await fetch(payload_dpop_proof['htu'], {
-        method: payload_dpop_proof['htm'],
-        headers: {
-            ...filteredHeaders,
-            'DPoP': proxy_dpop,
-            'Authorization': 'DPoP ' + await getCurrentAuthToken()
-        },
-        body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
-      });
-      log.verbose(`${req.rid}`, `Sent request, received response`);
-
-      // synchronous call with await times out, therefore do it async
-      logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString())
-        .then( () => {
-      		return loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
-	})
-	.then((activity) => {
-		 return logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString())
-	})
-	.then(() => {
-		return sendLogs(req.rid, loggingStore, loggingContainer)
-	})
-
-
-      // Copy header and status to client response
-      res.set(Object.fromEntries(serverRes.headers));
-      res.status(serverRes.status);
-
-      // Copy body to client response
-      if (serverRes.body) {
-        let reader = serverRes.body.getReader();
-        let done = false
-        let value = '';
-        while(!done) {
-          res.write(value);
-          ({ value, done } = await reader.read());
+      try {
+        const issuer = decodeJwt(auth_token)['iss'];
+        // Invalid auth token
+        if(!issuer) {
+          res.status(403);
+          log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
+          res.send("Auth token invalid: No issuer!");
+          return;
         }
+
+        // Get public key of IdP used for signing the auth token
+        const jwks_endpoint = (await (await fetch(issuer + '.well-known/openid-configuration')).json())['jwks_uri'];
+        const jwks = await createRemoteJWKSet(new URL(jwks_endpoint));
+        log.verbose(`${req.rid}`, `Retrieved signing keys from IdP's JWKs endpoint ${jwks_endpoint}`);
+
+        // Verify access token with public key of IdP
+        const { payload: payload_auth_token } = await jwtVerify(auth_token, jwks);
+        log.verbose(`${req.rid}`, `Auth token signature verified`);
+
+        // Get key the DPoP token should be signed with
+        const client_key_thumbprint = payload_auth_token['cnf']['jkt']
+        const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
+
+        // Check whether the DPoP signing key matches the auth token thumbprint
+        if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
+          log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
+          res.send("DPoP invalid: Thumbprint not matching signing key!");
+          res.sendStatus(403);
+          return;
+        }
+        log.verbose(`${req.rid}`, `Verified that DPoP signature key match thumbprint in auth token`);
+
+        // Check whether URI and method in the DPoP match the requested URI and method
+        const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
+        if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
+          log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
+          res.status(403);
+          res.send("Auth token invalid: Requested method or URI does not match!");
+          return;
+        }
+        log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
+
+        // We have an authenticated WebId \o/
+        const delegateWebId = payload_auth_token['webid'];
+        log.info(`${req.rid}`, `${delegateWebId} wants to send a ${req.method} request to ${requestUri}`);
+
+        // Create and sign a DPoP for the request
+        const proxy_dpop = await new SignJWT({
+          htu: facade.get(requestUri),
+          htm: payload_dpop_proof['htm']
+        })
+        .setProtectedHeader({
+          alg: 'PS256',
+          typ: 'dpop+jwt',
+          jwk: jwkPublicKey
+        })
+        .setIssuedAt()
+        .setJti(randomUUID())
+        .sign(privateKey);
+        log.verbose(`${req.rid}`, `Created signed DPoP for request`);
+
+        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+        const serverRes = await fetch(facade.get(requestUri), {
+          method: payload_dpop_proof['htm'],
+          headers: {
+              ...filteredHeaders,
+              'DPoP': proxy_dpop,
+              'Authorization': 'DPoP ' + await getCurrentAuthToken()
+          },
+          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+        });
+
+        log.verbose(`${req.rid}`, `Sent request, received response`);
+
+        // Copy header and status to client response
+        res.set(Object.fromEntries(serverRes.headers));
+        res.status(serverRes.status);
+
+        // Copy body to client response
+        if (serverRes.body) {
+          let reader = serverRes.body.getReader();
+          let done = false
+          let value = '';
+          while(!done) {
+            res.write(value);
+            ({ value, done } = await reader.read());
+          }
+        }
+        res.end();
+        log.verbose(`${req.rid}`, `Finished returning response`);
+      } catch(error) {
+        res.status(403);
+        log.warn(`${req.rid}`, error);
+        res.send(error);
+        return;
       }
-      res.end();
-      log.verbose(`${req.rid}`, `Finished returning response`);
-    } catch(error) {
-      res.status(403);
-      log.warn(`${req.rid}`, error);
-      res.send(error);
-      return;
+    } else {
+      // if not in facade, just forward
+      console.log(requestUri)
+      console.log(facade);
+      try {
+        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+        const serverRes = await fetch(payload_dpop_proof['htu'], {
+          method: payload_dpop_proof['htm'],
+          headers: {
+              ...filteredHeaders,
+          },
+          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+        });
+
+        log.verbose(`${req.rid}`, `Sent request, received response`);
+
+        // Copy header and status to client response
+        res.set(Object.fromEntries(serverRes.headers));
+        res.status(serverRes.status);
+
+        // Copy body to client response
+        if (serverRes.body) {
+          let reader = serverRes.body.getReader();
+          let done = false
+          let value = '';
+          while(!done) {
+            res.write(value);
+            ({ value, done } = await reader.read());
+          }
+        }
+        res.end();
+        log.verbose(`${req.rid}`, `Finished returning response`);
+      } catch(error) {
+        res.status(403);
+        log.warn(`${req.rid}`, error);
+        res.send(error);
+        return;
+      }
     }
   }
 }
@@ -445,10 +456,11 @@ app.use(bodyParser.raw({
 }));
 
 // Set up middleware
-app.use(await delegationProxy(
+app.use(await reverseProxy(
   process.env.DELEGATOR_WEB_ID,
   process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET
+  process.env.CLIENT_SECRET,
+  'https://sme.solid.aifb.kit.edu/businessAssessments/businessAssessment/'
 ));
 
 export default app;
