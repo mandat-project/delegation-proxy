@@ -13,10 +13,6 @@ const { literal, namedNode, quad } = DataFactory;
 // Set log level
 log.level = 'verbose'
 
-// Add timestamp to logging
-Object.defineProperty(log, 'heading', { get: () => { return new Date().toISOString() } })
-log.headingStyle = { bg: '', fg: 'blue' }
-
 const app = express();
 
 // Adding Express middleware for unique request id
@@ -30,7 +26,7 @@ app.use(ruid({
 
 // This function returns an Express.js middleware
 async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegistryUri) {
-  log.verbose('SDS-D', 'Starting SDS-D middleware');
+  log.verbose('DDP', 'Starting DDP middleware');
   // Logging in with Solid OIDC
 
   var idp = await getOIDCIssuer(delegatorWebId);
@@ -38,7 +34,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
     idp = idp.substring(0, idp.length - 1);
   }
 
-  log.verbose('SDS-D', `Logging in as ${delegatorWebId}`);
+  log.verbose('DDP', `Logging in as ${delegatorWebId}`);
   // Create keypair for signing DPoPs
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const jwkPublicKey = await exportJWK(publicKey);
@@ -47,7 +43,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
   // Find token endpoint of IdP
   const oidc_config = await (await fetch(idp + '/.well-known/openid-configuration')).json();
   const token_endpoint = oidc_config['token_endpoint'];
-  log.verbose('SDS-D', `Found token endpoint ${token_endpoint}`);
+  log.verbose('DDP', `Found token endpoint ${token_endpoint}`);
 
   // Save the current auth token here
   var currentAuthToken = null;
@@ -56,7 +52,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
   async function getCurrentAuthToken() {
     if(currentAuthToken && decodeJwt(currentAuthToken).exp > (Date.now() / 1000 + 60 * 9)) {
       // Still valid (plus one minute in the future), nothing to do
-      log.verbose('SDS-D', `Reusing existing auth token for ${delegatorWebId}`);
+      log.verbose('DDP', `Reusing existing auth token for ${delegatorWebId}`);
     } else {
       // Create signed DPoP
       const dpop = await new SignJWT({
@@ -71,7 +67,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
         .setIssuedAt()
         .setJti(randomUUID())
         .sign(privateKey);
-      log.verbose('SDS-D', `Created signed DPoP proof`);
+      log.verbose('DDP', `Created signed DPoP proof`);
 
       // Get new auth token from token endpoint
       const tokens = await (await fetch(token_endpoint, {
@@ -87,8 +83,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
           })
       })
       ).json();
-      log.silly('SDS-D', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
-      log.info('SDS-D', `Sucessfully logged in as ${delegatorWebId}`);
+      log.silly('DDP', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
+      log.info('DDP', `Sucessfully logged in as ${delegatorWebId}`);
       currentAuthToken = tokens['access_token'];
     }
 
@@ -102,102 +98,9 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
     if(issuers.length != 1) {
       log.warn('Found ' + issuers.length + ' OIDC issuers in the profile document of ' + delegatorWebId + ', needed exactly one!');
     } else {
-      log.verbose('SDS-D', 'Using OIDC issuer at ' + issuers[0].value + ' for authenticating the delegator');
+      log.verbose('DDP', 'Using OIDC issuer at ' + issuers[0].value + ' for authenticating the delegator');
     }
     return issuers[0].value;
-  }
-
-  async function getLoggingContainer(delegatorWebId) {
-    const profile = await fetch(delegatorWebId);
-    const store = await parse(await profile.text(), delegatorWebId);
-    const containers = store.getObjects(namedNode(delegatorWebId), namedNode('https://www.example.org/logs#loggingContainer'));
-    if(containers.length != 1) {
-      log.warn('Found ' + containers.length + ' logging containers in the profile document of ' + delegatorWebId + ', needed exactly one!');
-    } else {
-      log.verbose('SDS-D', 'Using logging container at ' + containers[0].value);
-    }
-    return containers[0].value;
-  }
-
-  async function sendLogs(rqid, loggingStore, loggingContainer) {
-    return new Promise((resolve, reject) => {
-      const writer = new Writer();
-      writer.addQuads(loggingStore.getQuads());
-      writer.end(async (error, result) => {
-        if(error) {
-          reject(error);
-        } else {
-          const proxy_dpop = await new SignJWT({
-            htu: loggingContainer,
-            htm: 'POST'
-          })
-          .setProtectedHeader({
-            alg: 'PS256',
-            typ: 'dpop+jwt',
-            jwk: jwkPublicKey
-          })
-          .setIssuedAt()
-          .setJti(randomUUID())
-          .sign(privateKey);
-
-          const serverRes = await fetch(loggingContainer, {
-            method: 'POST',
-            headers: {
-                'DPoP': proxy_dpop,
-                'Authorization': 'DPoP ' + await getCurrentAuthToken()
-            },
-            body: result
-          });
-          if(serverRes.status == 201) {
-            log.verbose(rqid, 'Created new log entry at ' + serverRes.headers.get('Location')) ;
-          } else {
-            log.warn(rqid, 'Could not create new log entry: ' + serverRes.status + ' ' + serverRes.statusText)
-          }
-        }
-      });
-    })
-  }
-
-  async function logIncomingRequest(store, method, uri, delegateWebId, time) {
-    store.addQuads([
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode(delegateWebId)), //has prov:Activity as range...?
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegateWebId)),
-      quad(namedNode('#primaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
-    ])
-  }
-
-  async function logRDPActivity(store, delegateWebId, time, primaryEntity, policyResult) {
-    store.addQuads([
-      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity')),
-      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#startedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
-      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#wasAssociatedWith'), namedNode(delegateWebId)),
-      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#wasStartedBy'), namedNode(primaryEntity)), 
-      
-      //missing: which policy was evaluated
-      quad(namedNode('#RDPActivity'), namedNode('https://www.example.org/rdpVocab#policyEvaluation'), literal(policyResult, namedNode('http://www.w3.org/2001/XMLSchema#boolean'))), //connect to policy?
-    ])
-  }
-  
-  async function logRDPActivityEndTime(store, activityUri, endTime) {
-    store.addQuads([
-      quad(namedNode(activityUri), namedNode('http://www.w3.org/ns/prov#endedAtTime'), literal(endTime, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
-    ])
-  }
-
-  async function logRDPRequest(store, method, uri, delegatorWebId, time) {
-    store.addQuads([
-      quad(namedNode('#RDPActivity'), namedNode('http://www.w3.org/ns/prov#generated'), namedNode('#secondaryRequest')),
-
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Entity')),
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/2011/http#method'), namedNode('http://www.w3.org/2011/http-methods#' + method)),
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/2011/http#requestUri'), namedNode(uri)),
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#wasGeneratedBy'), namedNode("#RDPActivity")),
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#wasAttributedTo'), namedNode(delegatorWebId)), //now as delegator
-      quad(namedNode('#secondaryRequest'), namedNode('http://www.w3.org/ns/prov#generatedAtTime'), literal(time, namedNode('http://www.w3.org/2001/XMLSchema#dateTime'))),
-    ])
   }
 
   async function makeAuthenticatedRequestToStore(uri, method) {
@@ -238,20 +141,19 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
     });
   }
 
-  const loggingContainer = await getLoggingContainer(delegatorWebId);
-
   // Check which resources we have to facade
   let facadeRegistryStore = await makeAuthenticatedRequestToStore(facadeRegistryUri, 'GET');
   let toFacade = facadeRegistryStore.getObjects(null, namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
+  log.info(`DDP`, `Facading data registration at ${toFacade}`);
   let facade = new Map();
   for(let tF of toFacade) {
     let tFStore = await makeAuthenticatedRequestToStore(tF, 'GET');
     tFStore.getObjects(null, namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(tF, facadeRegistryUri), nn.value]).forEach(r => facade.set(...r));
   }
+  log.silly(`DDP`, `Facaded URIs: ${[...facade.entries()]}`)
   
   // Return actual middleware handler
   return async function reverseProxy(req, res, next) {
-    const loggingStore = new Store();
     log.verbose(`${req.rid}`, `Incoming request`);
 
     // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
@@ -266,6 +168,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
 
     // Check whether request URI is facaded
     if(facade.has(requestUri)) {
+      log.verbose(`${req.rid}`, `URI ${requestUri} is facade for ${facade.get(requestUri)}`)
       // Get auth info from clients request
       const auth_token = req.headers['authorization'].replace('DPoP ','');
       const dpop_proof = req.headers['dpop'];
@@ -314,7 +217,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
 
         // We have an authenticated WebId \o/
         const delegateWebId = payload_auth_token['webid'];
-        log.info(`${req.rid}`, `${delegateWebId} wants to send a ${req.method} request to ${requestUri}`);
+        log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
 
         // Create and sign a DPoP for the request
         const proxy_dpop = await new SignJWT({
@@ -370,8 +273,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
       }
     } else {
       // if not in facade, just forward
-      console.log(requestUri)
-      console.log(facade);
+      log.verbose(`${req.rid}`, `URI ${requestUri} is not facaded, just forwarding request`)
       try {
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
@@ -412,19 +314,6 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
   }
 }
 
-const HttpMethod = {
-  GET: 0,
-  POST: 1,
-  PUT: 2,
-  DELETE: 3
-}
-
-async function hasAccess(delegatorWebId, delegateWebId, uri, method, session) {
-  const profile = await fetch(delegatorWebId);
-  const quads = await parse(await profile.text(), delegatorWebId);
-  return quads.has(quad(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/org#hasMember'), namedNode(delegateWebId)));
-}
-
 async function parse(rdfString, baseUri) {
   return new Promise((resolve, reject) => {
     const parser = new Parser({
@@ -460,7 +349,7 @@ app.use(await reverseProxy(
   process.env.DELEGATOR_WEB_ID,
   process.env.CLIENT_ID,
   process.env.CLIENT_SECRET,
-  'https://sme.solid.aifb.kit.edu/businessAssessments/businessAssessment/'
+  process.env.FACADE_DATA_REGISTRY
 ));
 
 export default app;
