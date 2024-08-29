@@ -109,10 +109,13 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   async function getOIDCIssuer(delegatorWebId) {
     const profile = await fetch(uriToLocal(delegatorWebId), {
       headers: {
-        'Host': new URL(delegatorWebId).hostname
-      }
+        'X-Forwarded-Host': new URL(delegatorWebId).hostname,
+      	'X-Forwarded-Proto': 'https'
+	}
     });
-    const store = await parse(await profile.text(), delegatorWebId);
+	let pt = await profile.text()
+
+    const store = await parse(pt, delegatorWebId);
     const issuers = store.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/terms#oidcIssuer'));
     if(issuers.length != 1) {
       log.warn('Found ' + issuers.length + ' OIDC issuers in the profile document of ' + delegatorWebId + ', needed exactly one!');
@@ -148,7 +151,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         headers: {
             'DPoP': proxy_dpop,
             'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-            'Host': new URL(uri).hostname
+            'X-Forwarded-Host': new URL(uri).hostname,
+	    'X-Forwarded-Proto': 'https'
         }
       });
       if(!serverRes.ok) {
@@ -292,7 +296,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
               ...filteredHeaders,
               'DPoP': proxy_dpop,
               'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-              'Host': new URL(facade.get(requestUri)).hostname
+              'X-Forwarded-Host': new URL(facade.get(requestUri)).hostname,
+              'X-Forwarded-Proto': 'https'
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
         });
@@ -334,7 +339,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
               ...filteredHeaders,
               'DPoP': req.headers['dpop'],
               'Authorization': req.headers['authorization'],
-              'Host': new URL(requestUri).hostname
+              'X-Forwarded-Host': new URL(requestUri).hostname,
+              'X-Forwarded-Proto': 'https'
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
         });
