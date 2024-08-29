@@ -1,7 +1,7 @@
 version: '3.7'
 services:
 
-  market:
+  market-dpp:
     build: .
     restart: always
     ports:
@@ -12,6 +12,19 @@ services:
       - CLIENT_SECRET=3e4945b29c1c47cbe431d032416ce19a955aa1007bd0803eff92bc867f0e2ee60da5ee7b0a9958eaebce7c3c80ee8e5510962e501cc5c0b79ea8c966b39f8bf7
       - POD_ADDRESS=http://mandat-css-server-1:3000
       - BASE_URI=https://market.solid.aifb.kit.edu
+    networks:
+      - default    
+  sme-dpp:
+    build: .
+    restart: always
+    ports:
+      - 1093:3000
+    environment:
+      - DELEGATOR_WEB_ID=https://sme.solid.aifb.kit.edu/profile/card#me
+      - CLIENT_ID=data_provision_proxy_1289105f-6edd-4d5c-9104-380f136ef800
+      - CLIENT_SECRET=2a12c474da584b506908e6664fbf3f6ad8c08a2566b1ecdad98d1ce3e2b21eb079f68772bbebbc07671f8b732f4e2a95ce0daed08c37642f1ffa8c958b6b7aad
+      - POD_ADDRESS=http://mandat-css-server-1:3000
+      - BASE_URI=https://sme.solid.aifb.kit.edu
     networks:
       - default    
 networks:
