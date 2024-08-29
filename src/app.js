@@ -68,9 +68,10 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
         .setJti(randomUUID())
         .sign(privateKey);
       log.verbose('DDP', `Created signed DPoP proof`);
+      log.silly(`DDP`, `DPoP: ${dpop}`);
 
       // Get new auth token from token endpoint
-      const tokens = await (await fetch(token_endpoint, {
+      const res = await fetch(token_endpoint, {
           method: 'POST',
           headers: {
               'DPoP': dpop,
@@ -82,10 +83,16 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
               client_secret
           })
       })
-      ).json();
-      log.silly('DDP', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
-      log.info('DDP', `Sucessfully logged in as ${delegatorWebId}`);
-      currentAuthToken = tokens['access_token'];
+      if(res.ok) {
+        const tokens = await res.json();
+        log.silly('DDP', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
+        log.info('DDP', `Sucessfully logged in as ${delegatorWebId}`);
+        currentAuthToken = tokens['access_token'];
+      } else {
+        let errorMsg = await res.text();
+        log.error(`DDP`, `Was not able to log in: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
     }
 
     return currentAuthToken;
