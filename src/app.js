@@ -25,7 +25,7 @@ app.use(ruid({
 }));
 
 // This function returns an Express.js middleware
-async function reverseProxy(delegatorWebId, client_id, client_secret, pod_address) {
+async function reverseProxy(delegatorWebId, client_id, client_secret, pod_address, base_uri) {
   log.verbose('DDP', 'Starting DDP middleware');
   // Logging in with Solid OIDC
 
@@ -217,7 +217,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   return async function reverseProxy(req, res, next) {
     log.verbose(`${req.rid}`, `Incoming request`);
 
-    const requestUri = req.uri;
+    const requestUri = base_uri + req.originalUrl;
 
     // Check whether request URI is facaded
     if(facade.has(requestUri)) {
@@ -408,7 +408,8 @@ app.use(await reverseProxy(
   process.env.DELEGATOR_WEB_ID,
   process.env.CLIENT_ID,
   process.env.CLIENT_SECRET,
-  process.env.POD_ADDRESS
+  process.env.POD_ADDRESS,
+  process.env.BASE_URI
 ));
 
 export default app;
