@@ -188,30 +188,32 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       let dataRegistrationStore = await makeAuthenticatedRequestToStore(dataRegistration, 'GET', true);
       if(dataRegistrationStore.has(namedNode(dataRegistration), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://example.org/vocab/datev/delegation#FacadeDataRegistration'))) {
         let shadowedUris = dataRegistrationStore.getObjects(namedNode(dataRegistration), namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
+        let list = [];
         for(let shadowedUri of shadowedUris) {
           log.info(`DDP`, `${dataRegistration} shadows data registration at ${shadowedUri}`);
-          let list = facadeDataRegistration.get(dataRegistration);
-          if(list) {
-            list.push(shadowedUri);
-          } else {
-            list = [shadowedUri];
-          }
-          facadeDataRegistration.set(dataRegistration, list)
+          list.push(shadowedUri);
         }
+        facadeDataRegistration.set(dataRegistration, list);
       }
     }
   }
 
   // Get all the resources that are shadowed
-  let facade = new Map();
+  let facadeResources = new Map();
+  let facadeContainers = new Map();
   for(let [key, value] of facadeDataRegistration.entries()) {
+    let list = [];
     for(let l of value) {
       let shadowedStore = await makeAuthenticatedRequestToStore(l, 'GET', false);
-      shadowedStore.getObjects(namedNode(l), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(l, key), nn.value]).forEach(r => facade.set(...r));
+      let shadowed = shadowedStore.getObjects(namedNode(l), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(l, key), nn.value])
+      shadowed.forEach(r => facadeResources.set(...r));
+      list.push(shadowed.map(s => s[0]));
     }
+    facadeContainers.set(key, list)
   }
 
-  log.silly(`DDP`, `Facaded URIs: ${[...facade.entries()]}`);
+  log.silly(`DDP`, `Facaded resources: ${[...facadeResources.entries()]}`);
+  log.silly(`DDP`, `Facaded containers: ${[...facadeContainers.entries()]}`);
   
   // Return actual middleware handler
   return async function reverseProxy(req, res, next) {
@@ -220,83 +222,123 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     const requestUri = base_uri + req.originalUrl;
 
     // Check whether request URI is facaded
-    if(facade.has(requestUri)) {
-      log.verbose(`${req.rid}`, `URI ${requestUri} is facade for ${facade.get(requestUri)}`)
+    if(facadeResources.has(requestUri)) {
+      log.verbose(`${req.rid}`, `URI ${requestUri} is facade for ${facadeResources.get(requestUri)}`)
       // Get auth info from clients request
-      const auth_token = req.headers['authorization'].replace('DPoP ','');
-      const dpop_proof = req.headers['dpop'];
+      if(req.headers.has('authorization') && req.headers.has('dpop')) {
+        const auth_token = req.headers['authorization'].replace('DPoP ','');
+        const dpop_proof = req.headers['dpop'];
 
-      try {
-        const issuer = decodeJwt(auth_token)['iss'];
-        // Invalid auth token
-        if(!issuer) {
+        try {
+          const issuer = decodeJwt(auth_token)['iss'];
+          // Invalid auth token
+          if(!issuer) {
+            res.status(403);
+            log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
+            res.send("Auth token invalid: No issuer!");
+            return;
+          }
+
+          // Get public key of IdP used for signing the auth token
+          const jwks_endpoint = (await (await fetch(issuer + '.well-known/openid-configuration')).json())['jwks_uri'];
+          const jwks = await createRemoteJWKSet(new URL(jwks_endpoint));
+          log.verbose(`${req.rid}`, `Retrieved signing keys from IdP's JWKs endpoint ${jwks_endpoint}`);
+
+          // Verify access token with public key of IdP
+          const { payload: payload_auth_token } = await jwtVerify(auth_token, jwks);
+          log.verbose(`${req.rid}`, `Auth token signature verified`);
+
+          // Get key the DPoP token should be signed with
+          const client_key_thumbprint = payload_auth_token['cnf']['jkt']
+          const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
+
+          // Check whether the DPoP signing key matches the auth token thumbprint
+          if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
+            log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
+            res.send("DPoP invalid: Thumbprint not matching signing key!");
+            res.sendStatus(403);
+            return;
+          }
+          log.verbose(`${req.rid}`, `Verified that DPoP signature key match thumbprint in auth token`);
+
+          // Check whether URI and method in the DPoP match the requested URI and method
+          const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
+          if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
+            log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
+            res.status(403);
+            res.send("Auth token invalid: Requested method or URI does not match!");
+            return;
+          }
+          log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
+
+          // We have an authenticated WebId \o/
+          const delegateWebId = payload_auth_token['webid'];
+          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
+
+          // Create and sign a DPoP for the request
+          const proxy_dpop = await new SignJWT({
+            htu: facadeResources.get(requestUri),
+            htm: payload_dpop_proof['htm']
+          })
+          .setProtectedHeader({
+            alg: 'PS256',
+            typ: 'dpop+jwt',
+            jwk: jwkPublicKey
+          })
+          .setIssuedAt()
+          .setJti(randomUUID())
+          .sign(privateKey);
+          log.verbose(`${req.rid}`, `Created signed DPoP for request`);
+
+          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+          const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
+            method: payload_dpop_proof['htm'],
+            headers: {
+                ...filteredHeaders,
+                'DPoP': proxy_dpop,
+                'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+                'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+                'X-Forwarded-Proto': 'https'
+            },
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          });
+
+          log.verbose(`${req.rid}`, `Sent request, received response`);
+
+          // Copy header and status to client response
+          res.set(Object.fromEntries(serverRes.headers));
+          res.status(serverRes.status);
+
+          // Copy body to client response
+          if (serverRes.body) {
+            let reader = serverRes.body.getReader();
+            let done = false
+            let value = '';
+            while(!done) {
+              res.write(value);
+              ({ value, done } = await reader.read());
+            }
+          }
+          res.end();
+          log.verbose(`${req.rid}`, `Finished returning response`);
+        } catch(error) {
           res.status(403);
-          log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
-          res.send("Auth token invalid: No issuer!");
+          log.warn(`${req.rid}`, error);
+          res.send(error);
           return;
         }
-
-        // Get public key of IdP used for signing the auth token
-        const jwks_endpoint = (await (await fetch(issuer + '.well-known/openid-configuration')).json())['jwks_uri'];
-        const jwks = await createRemoteJWKSet(new URL(jwks_endpoint));
-        log.verbose(`${req.rid}`, `Retrieved signing keys from IdP's JWKs endpoint ${jwks_endpoint}`);
-
-        // Verify access token with public key of IdP
-        const { payload: payload_auth_token } = await jwtVerify(auth_token, jwks);
-        log.verbose(`${req.rid}`, `Auth token signature verified`);
-
-        // Get key the DPoP token should be signed with
-        const client_key_thumbprint = payload_auth_token['cnf']['jkt']
-        const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
-
-        // Check whether the DPoP signing key matches the auth token thumbprint
-        if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
-          log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
-          res.send("DPoP invalid: Thumbprint not matching signing key!");
-          res.sendStatus(403);
-          return;
-        }
-        log.verbose(`${req.rid}`, `Verified that DPoP signature key match thumbprint in auth token`);
-
-        // Check whether URI and method in the DPoP match the requested URI and method
-        const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
-        if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
-          log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
-          res.status(403);
-          res.send("Auth token invalid: Requested method or URI does not match!");
-          return;
-        }
-        log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
-
-        // We have an authenticated WebId \o/
-        const delegateWebId = payload_auth_token['webid'];
-        log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
-
-        // Create and sign a DPoP for the request
-        const proxy_dpop = await new SignJWT({
-          htu: facade.get(requestUri),
-          htm: payload_dpop_proof['htm']
-        })
-        .setProtectedHeader({
-          alg: 'PS256',
-          typ: 'dpop+jwt',
-          jwk: jwkPublicKey
-        })
-        .setIssuedAt()
-        .setJti(randomUUID())
-        .sign(privateKey);
-        log.verbose(`${req.rid}`, `Created signed DPoP for request`);
-
+      } else {
+        // Forward unauthenticated facaded request
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(uriToLocal(facade.get(requestUri)), {
+        const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
           method: payload_dpop_proof['htm'],
           headers: {
               ...filteredHeaders,
-              'DPoP': proxy_dpop,
-              'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-              'X-Forwarded-Host': new URL(facade.get(requestUri)).hostname,
+              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
               'X-Forwarded-Proto': 'https'
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
@@ -320,11 +362,147 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         }
         res.end();
         log.verbose(`${req.rid}`, `Finished returning response`);
-      } catch(error) {
-        res.status(403);
-        log.warn(`${req.rid}`, error);
-        res.send(error);
-        return;
+      }
+    } else if(facadeContainers.has(requestUri)) {
+      // check if facaded container
+      log.verbose(`${req.rid}`, `URI ${requestUri} is facade container`)
+
+      if(req.headers.has('authorization') && req.headers.has('dpop')) {
+        // Get auth info from clients request
+        const auth_token = req.headers['authorization'].replace('DPoP ','');
+        const dpop_proof = req.headers['dpop'];
+
+        try {
+          const issuer = decodeJwt(auth_token)['iss'];
+          // Invalid auth token
+          if(!issuer) {
+            res.status(403);
+            log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
+            res.send("Auth token invalid: No issuer!");
+            return;
+          }
+
+          // Get public key of IdP used for signing the auth token
+          const jwks_endpoint = (await (await fetch(issuer + '.well-known/openid-configuration')).json())['jwks_uri'];
+          const jwks = await createRemoteJWKSet(new URL(jwks_endpoint));
+          log.verbose(`${req.rid}`, `Retrieved signing keys from IdP's JWKs endpoint ${jwks_endpoint}`);
+
+          // Verify access token with public key of IdP
+          const { payload: payload_auth_token } = await jwtVerify(auth_token, jwks);
+          log.verbose(`${req.rid}`, `Auth token signature verified`);
+
+          // Get key the DPoP token should be signed with
+          const client_key_thumbprint = payload_auth_token['cnf']['jkt']
+          const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
+
+          // Check whether the DPoP signing key matches the auth token thumbprint
+          if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
+            log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
+            res.send("DPoP invalid: Thumbprint not matching signing key!");
+            res.sendStatus(403);
+            return;
+          }
+          log.verbose(`${req.rid}`, `Verified that DPoP signature key match thumbprint in auth token`);
+
+          // Check whether URI and method in the DPoP match the requested URI and method
+          const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
+          if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
+            log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
+            res.status(403);
+            res.send("Auth token invalid: Requested method or URI does not match!");
+            return;
+          }
+          log.verbose(`${req.rid}`, `Verified that requested method and URI match auth token`);
+
+          // We have an authenticated WebId \o/
+          const delegateWebId = payload_auth_token['webid'];
+          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
+
+          // Create and sign a DPoP for the request
+          const proxy_dpop = await new SignJWT({
+            htu: uriToLocal(requestUri),
+            htm: payload_dpop_proof['htm']
+          })
+          .setProtectedHeader({
+            alg: 'PS256',
+            typ: 'dpop+jwt',
+            jwk: jwkPublicKey
+          })
+          .setIssuedAt()
+          .setJti(randomUUID())
+          .sign(privateKey);
+          log.verbose(`${req.rid}`, `Created signed DPoP for request`);
+
+          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+          const serverRes = await fetch(uriToLocal(requestUri), {
+            method: payload_dpop_proof['htm'],
+            headers: {
+                ...filteredHeaders,
+                'DPoP': proxy_dpop,
+                'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+                'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+                'X-Forwarded-Proto': 'https'
+            },
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          });
+
+          log.verbose(`${req.rid}`, `Sent request, received response`);
+
+          // Copy header and status to client response
+          res.set(Object.fromEntries(serverRes.headers));
+          res.status(serverRes.status);
+
+          // Parse body to add triples
+          let store = parse(await serverRes.text(), requestUri);
+          facadeContainers.get(requestUri).forEach(cr => store.addQuad(namedNode(requestUri), namedNode('http://www.w3.org/ns/ldp#contains'), namedNode(cr)))
+          let writer = new Writer();
+          writer.addQuads(store);
+          writer.end((error, result) => {
+            res.send(result)
+          });
+
+          log.verbose(`${req.rid}`, `Finished returning response`);
+        } catch(error) {
+          res.status(403);
+          log.warn(`${req.rid}`, error);
+          res.send(error);
+          return;
+        }
+      } else {
+        // Forward unauthenticated facaded request
+        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+        const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
+          method: payload_dpop_proof['htm'],
+          headers: {
+              ...filteredHeaders,
+              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+              'X-Forwarded-Proto': 'https'
+          },
+          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+        });
+
+        log.verbose(`${req.rid}`, `Sent request, received response`);
+
+        // Copy header and status to client response
+        res.set(Object.fromEntries(serverRes.headers));
+        res.status(serverRes.status);
+
+        // Copy body to client response
+        if (serverRes.body) {
+          let reader = serverRes.body.getReader();
+          let done = false
+          let value = '';
+          while(!done) {
+            res.write(value);
+            ({ value, done } = await reader.read());
+          }
+        }
+        res.end();
+        log.verbose(`${req.rid}`, `Finished returning response`);
       }
     } else {
       // if not in facade, just forward
