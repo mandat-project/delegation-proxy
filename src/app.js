@@ -25,9 +25,17 @@ app.use(ruid({
 }));
 
 // This function returns an Express.js middleware
-async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegistryUri) {
+async function reverseProxy(delegatorWebId, client_id, client_secret, pod_address) {
   log.verbose('DDP', 'Starting DDP middleware');
   // Logging in with Solid OIDC
+
+  // Helper for mapping Solid Pod URI to local Pod URI
+  function uriToLocal(uri) {
+    let url = new URL(uri);
+    return new URL(url.pathname + url.hash, pod_address);
+  }
+
+  // Constructing local WebId to access profile document
 
   var idp = await getOIDCIssuer(delegatorWebId);
   if(idp.endsWith('/')) {
@@ -99,7 +107,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
   }
 
   async function getOIDCIssuer(delegatorWebId) {
-    const profile = await fetch(delegatorWebId);
+    const profile = await fetch(uriToLocal(delegatorWebId));
     const store = await parse(await profile.text(), delegatorWebId);
     const issuers = store.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/terms#oidcIssuer'));
     if(issuers.length != 1) {
@@ -131,7 +139,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
       .setJti(randomUUID())
       .sign(privateKey);
 
-      const serverRes = await fetch(uri, {
+      const serverRes = await fetch(uriToLocal(uri), {
         method: method,
         headers: {
             'DPoP': proxy_dpop,
@@ -268,7 +276,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(facade.get(requestUri), {
+        const serverRes = await fetch(uriToLocal(facade.get(requestUri)), {
           method: payload_dpop_proof['htm'],
           headers: {
               ...filteredHeaders,
@@ -309,7 +317,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(requestUri, {
+        const serverRes = await fetch(uriToLocal(requestUri), {
           method: req.method,
           headers: {
               ...filteredHeaders,
@@ -381,7 +389,8 @@ app.use(bodyParser.raw({
 app.use(await reverseProxy(
   process.env.DELEGATOR_WEB_ID,
   process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET
+  process.env.CLIENT_SECRET,
+  process.env.POD_ADDRESS
 ));
 
 export default app;
