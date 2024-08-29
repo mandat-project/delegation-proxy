@@ -3,7 +3,7 @@ import { exportJWK, SignJWT, generateKeyPair, jwtVerify, decodeJwt, decodeProtec
 import { randomUUID } from 'crypto';
 import log from 'npmlog';
 import ruid from 'express-ruid';
-import { DataFactory, Parser, Store } from 'n3';
+import { DataFactory, Parser, Store, Writer } from 'n3';
 import cors from 'cors';
 import process from 'process';
 import bodyParser from 'body-parser';
