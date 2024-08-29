@@ -455,7 +455,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           res.status(serverRes.status);
 
           // Parse body to add triples
-          let store = parse(await serverRes.text(), requestUri);
+          let store = await parse(await serverRes.text(), requestUri);
           facadeContainers.get(requestUri).forEach(cr => store.addQuad(namedNode(requestUri), namedNode('http://www.w3.org/ns/ldp#contains'), namedNode(cr)))
           let writer = new Writer();
           writer.addQuads(store);
