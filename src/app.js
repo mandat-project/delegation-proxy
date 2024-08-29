@@ -3,15 +3,15 @@ import { exportJWK, SignJWT, generateKeyPair, jwtVerify, decodeJwt, decodeProtec
 import { randomUUID } from 'crypto';
 import log from 'npmlog';
 import ruid from 'express-ruid';
-import { DataFactory, Parser, Store, Writer } from 'n3';
+import { DataFactory, Parser, Store } from 'n3';
 import cors from 'cors';
 import process from 'process';
 import bodyParser from 'body-parser';
 
-const { literal, namedNode, quad } = DataFactory;
+const { namedNode } = DataFactory;
 
 // Set log level
-log.level = 'verbose'
+log.level = 'silly'
 
 const app = express();
 
@@ -148,16 +148,40 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
     });
   }
 
-  // Check which resources we have to facade
-  let facadeRegistryStore = await makeAuthenticatedRequestToStore(facadeRegistryUri, 'GET');
-  let toFacade = facadeRegistryStore.getObjects(null, namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
-  log.info(`DDP`, `Facading data registration at ${toFacade}`);
-  let facade = new Map();
-  for(let tF of toFacade) {
-    let tFStore = await makeAuthenticatedRequestToStore(tF, 'GET');
-    tFStore.getObjects(null, namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(tF, facadeRegistryUri), nn.value]).forEach(r => facade.set(...r));
+  // Find all data registrations that are FacadeDataRegistrations
+  let profileStore = await makeAuthenticatedRequestToStore(delegatorWebId, 'GET');
+  let registrySets = profileStore.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/interop#hasRegistrySet'));
+  if(registrySets.length != 1) {
+    log.error(`DDP`, `${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
+    throw new Error(`${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
   }
-  log.silly(`DDP`, `Facaded URIs: ${[...facade.entries()]}`)
+  let registrySetStore = await makeAuthenticatedRequestToStore(registrySets[0].value, 'GET');
+  let dataRegistries = registrySetStore.getObjects(namedNode(registrySets[0].value), namedNode('http://www.w3.org/ns/solid/interop#hasDataRegistry')).map(nn => nn.value);
+  let facadeDataRegistration = new Map();
+  for(let dataRegistry of dataRegistries) {
+    let dataRegistryStore = await makeAuthenticatedRequestToStore(dataRegistry, 'GET');
+    let dataRegistrations = dataRegistryStore.getObjects(namedNode(dataRegistry), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => nn.value);
+    for(let dataRegistration of dataRegistrations) {
+      let dataRegistrationStore = await makeAuthenticatedRequestToStore(dataRegistration, 'GET');
+      if(dataRegistrationStore.has(namedNode(dataRegistration), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://example.org/vocab/datev/delegation#FacadeDataRegistration'))) {
+        let shadowedUris = dataRegistrationStore.getObjects(namedNode(dataRegistration), namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
+        for(let shadowedUri of shadowedUris) {
+          log.info(`DDP`, `${dataRegistration} shadows data registration at ${shadowedUri}`);
+          facadeDataRegistration.set(dataRegistration, shadowedUri)
+        }
+      }
+    }
+  }
+
+  // Get all the resources that are shadowed
+  let facade = new Map();
+  for(let [key, value] of facadeDataRegistration.entries()) {
+    let shadowedStore = await makeAuthenticatedRequestToStore(value, 'GET');
+    shadowedStore.getObjects(namedNode(value), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(value, key), nn.value]).forEach(r => facade.set(...r));
+  }
+
+  log.silly(`DDP`, `Facaded URIs:`);
+  log.silly([...facade.entries()]);
   
   // Return actual middleware handler
   return async function reverseProxy(req, res, next) {
@@ -285,10 +309,12 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, facadeRegi
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(payload_dpop_proof['htu'], {
-          method: payload_dpop_proof['htm'],
+        const serverRes = await fetch(requestUri, {
+          method: req.method,
           headers: {
               ...filteredHeaders,
+              'DPoP': req.headers['dpop'],
+              'Authorization': req.headers['authorization']
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
         });
@@ -355,8 +381,7 @@ app.use(bodyParser.raw({
 app.use(await reverseProxy(
   process.env.DELEGATOR_WEB_ID,
   process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  process.env.FACADE_DATA_REGISTRY
+  process.env.CLIENT_SECRET
 ));
 
 export default app;
