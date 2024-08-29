@@ -107,7 +107,11 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   }
 
   async function getOIDCIssuer(delegatorWebId) {
-    const profile = await fetch(uriToLocal(delegatorWebId));
+    const profile = await fetch(uriToLocal(delegatorWebId), {
+      headers: {
+        'Host': new URL(delegatorWebId).hostname
+      }
+    });
     const store = await parse(await profile.text(), delegatorWebId);
     const issuers = store.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/terms#oidcIssuer'));
     if(issuers.length != 1) {
@@ -143,7 +147,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         method: method,
         headers: {
             'DPoP': proxy_dpop,
-            'Authorization': 'DPoP ' + await getCurrentAuthToken()
+            'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+            'Host': new URL(uri).hostname
         }
       });
       if(!serverRes.ok) {
@@ -286,7 +291,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           headers: {
               ...filteredHeaders,
               'DPoP': proxy_dpop,
-              'Authorization': 'DPoP ' + await getCurrentAuthToken()
+              'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+              'Host': new URL(facade.get(requestUri)).hostname
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
         });
@@ -327,7 +333,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           headers: {
               ...filteredHeaders,
               'DPoP': req.headers['dpop'],
-              'Authorization': req.headers['authorization']
+              'Authorization': req.headers['authorization'],
+              'Host': new URL(requestUri).hostname
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
         });
