@@ -95,9 +95,10 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
         .setJti(randomUUID())
         .sign(privateKey);
       log.verbose('SDS-D', `Created signed DPoP proof`);
+      log.silly(`SDS-D`, `DPoP: ${dpop}`);
 
       // Get new auth token from token endpoint
-      const tokens = await (await fetch(token_endpoint, {
+      const res = await fetch(token_endpoint, {
           method: 'POST',
           headers: {
               'DPoP': dpop,
@@ -109,10 +110,16 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
               client_secret
           })
       })
-      ).json();
-      log.silly('SDS-D', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
-      log.info('SDS-D', `Sucessfully logged in as ${delegatorWebId}`);
-      currentAuthToken = tokens['access_token'];
+      if(res.ok) {
+        const tokens = await res.json();
+        log.silly('SDS-D', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
+        log.info('SDS-D', `Sucessfully logged in as ${delegatorWebId}`);
+        currentAuthToken = tokens['access_token'];
+      } else {
+        let errorMsg = await res.text();
+        log.error(`SDS-D`, `Was not able to log in: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
     }
 
     return currentAuthToken;
@@ -366,14 +373,14 @@ async function delegationProxy(delegatorWebId, client_id, client_secret) {
       // synchronous call with await times out, therefore do it async
       logRDPRequest(loggingStore, req.method, requestUri, delegatorWebId, (new Date()).toISOString())
         .then( () => {
-      		return loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0]
-	})
-	.then((activity) => {
-		 return logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString())
-	})
-	.then(() => {
-		return sendLogs(req.rid, loggingStore, loggingContainer)
-	})
+      		return loggingStore.getSubjects(namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://www.w3.org/ns/prov#Activity'))[0];
+        })
+        .then((activity) => {
+          return logRDPActivityEndTime(loggingStore, activity.value, (new Date()).toISOString());
+        })
+        .then(() => {
+          return sendLogs(req.rid, loggingStore, loggingContainer);
+        })
 
 
       // Copy header and status to client response
