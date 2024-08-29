@@ -420,7 +420,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
           // Create and sign a DPoP for the request
           const proxy_dpop = await new SignJWT({
-            htu: uriToLocal(requestUri),
+            htu: requestUri,
             htm: payload_dpop_proof['htm']
           })
           .setProtectedHeader({
