@@ -458,7 +458,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           let store = await parse(await serverRes.text(), requestUri);
           facadeContainers.get(requestUri).forEach(cr => store.addQuad(namedNode(requestUri), namedNode('http://www.w3.org/ns/ldp#contains'), namedNode(cr)))
           let writer = new Writer();
-          writer.addQuads(store);
+          writer.addQuads(store.getQuads());
           writer.end((error, result) => {
             res.send(result)
           });
