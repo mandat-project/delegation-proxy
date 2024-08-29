@@ -207,7 +207,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       let shadowedStore = await makeAuthenticatedRequestToStore(l, 'GET', false);
       let shadowed = shadowedStore.getObjects(namedNode(l), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(l, key), nn.value])
       shadowed.forEach(r => facadeResources.set(...r));
-      list.push(shadowed.map(s => s[0]));
+      list.push(...shadowed.map(s => s[0]));
     }
     facadeContainers.set(key, list)
   }
