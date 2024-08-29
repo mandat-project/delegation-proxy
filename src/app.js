@@ -225,7 +225,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     if(facadeResources.has(requestUri)) {
       log.verbose(`${req.rid}`, `URI ${requestUri} is facade for ${facadeResources.get(requestUri)}`)
       // Get auth info from clients request
-      if(req.headers.has('authorization') && req.headers.has('dpop')) {
+      if(req.headers['authorization'] && req.headers['dpop']) {
         const auth_token = req.headers['authorization'].replace('DPoP ','');
         const dpop_proof = req.headers['dpop'];
 
@@ -367,7 +367,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       // check if facaded container
       log.verbose(`${req.rid}`, `URI ${requestUri} is facade container`)
 
-      if(req.headers.has('authorization') && req.headers.has('dpop')) {
+      if(req.headers['authorization'] && req.headers['dpop']) {
         // Get auth info from clients request
         const auth_token = req.headers['authorization'].replace('DPoP ','');
         const dpop_proof = req.headers['dpop'];
