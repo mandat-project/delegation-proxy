@@ -145,6 +145,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       .setIssuedAt()
       .setJti(randomUUID())
       .sign(privateKey);
+      log.warn(proxy_dpop);
 
       const serverRes = await fetch(local ? uriToLocal(uri) : uri, {
         method: method,
