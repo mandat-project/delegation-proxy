@@ -442,7 +442,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
                 ...filteredHeaders,
                 'DPoP': proxy_dpop,
                 'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-                'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+                'X-Forwarded-Host': new URL(requestUri).hostname,
                 'X-Forwarded-Proto': 'https'
             },
             body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
