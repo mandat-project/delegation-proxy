@@ -508,45 +508,86 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     } else {
       // if not in facade, just forward
       log.verbose(`${req.rid}`, `URI ${requestUri} is not facaded, just forwarding request`)
-      try {
-        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+      if(req.headers['authorization'] && req.headers['dpop']) {
+        try {
+          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(uriToLocal(requestUri), {
-          method: req.method,
-          headers: {
-              ...filteredHeaders,
-              'DPoP': req.headers['dpop'],
-              'Authorization': req.headers['authorization'],
-              'X-Forwarded-Host': new URL(requestUri).hostname,
-              'X-Forwarded-Proto': 'https'
-          },
-          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
-        });
+          const serverRes = await fetch(uriToLocal(requestUri), {
+            method: req.method,
+            headers: {
+                ...filteredHeaders,
+                'DPoP': req.headers['dpop'],
+                'Authorization': req.headers['authorization'],
+                'X-Forwarded-Host': new URL(requestUri).hostname,
+                'X-Forwarded-Proto': 'https'
+            },
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          });
 
-        log.verbose(`${req.rid}`, `Sent request, received response`);
+          log.verbose(`${req.rid}`, `Sent request, received response`);
 
-        // Copy header and status to client response
-        res.set(Object.fromEntries(serverRes.headers));
-        res.status(serverRes.status);
+          // Copy header and status to client response
+          res.set(Object.fromEntries(serverRes.headers));
+          res.status(serverRes.status);
 
-        // Copy body to client response
-        if (serverRes.body) {
-          let reader = serverRes.body.getReader();
-          let done = false
-          let value = '';
-          while(!done) {
-            res.write(value);
-            ({ value, done } = await reader.read());
+          // Copy body to client response
+          if (serverRes.body) {
+            let reader = serverRes.body.getReader();
+            let done = false
+            let value = '';
+            while(!done) {
+              res.write(value);
+              ({ value, done } = await reader.read());
+            }
           }
+          res.end();
+          log.verbose(`${req.rid}`, `Finished returning response`);
+        } catch(error) {
+          res.status(403);
+          log.warn(`${req.rid}`, error);
+          res.send(error);
+          return;
         }
-        res.end();
-        log.verbose(`${req.rid}`, `Finished returning response`);
-      } catch(error) {
-        res.status(403);
-        log.warn(`${req.rid}`, error);
-        res.send(error);
-        return;
+      } else {
+        try {
+          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+
+          const serverRes = await fetch(uriToLocal(requestUri), {
+            method: req.method,
+            headers: {
+                ...filteredHeaders,
+                'X-Forwarded-Host': new URL(requestUri).hostname,
+                'X-Forwarded-Proto': 'https'
+            },
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          });
+
+          log.verbose(`${req.rid}`, `Sent request, received response`);
+
+          // Copy header and status to client response
+          res.set(Object.fromEntries(serverRes.headers));
+          res.status(serverRes.status);
+
+          // Copy body to client response
+          if (serverRes.body) {
+            let reader = serverRes.body.getReader();
+            let done = false
+            let value = '';
+            while(!done) {
+              res.write(value);
+              ({ value, done } = await reader.read());
+            }
+          }
+          res.end();
+          log.verbose(`${req.rid}`, `Finished returning response`);
+        } catch(error) {
+          res.status(403);
+          log.warn(`${req.rid}`, error);
+          res.send(error);
+          return;
+        }
       }
     }
   }
