@@ -118,7 +118,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     return issuers[0].value;
   }
 
-  async function makeAuthenticatedRequestToStore(uri, method) {
+  async function makeAuthenticatedRequestToStore(uri, method, local = false) {
     return new Promise(async (resolve, reject) => {
       const store = new Store();
       const parser = new Parser({
@@ -139,43 +139,55 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       .setJti(randomUUID())
       .sign(privateKey);
 
-      const serverRes = await fetch(uriToLocal(uri), {
+      const serverRes = await fetch(local ? uriToLocal(uri) : uri, {
         method: method,
         headers: {
             'DPoP': proxy_dpop,
             'Authorization': 'DPoP ' + await getCurrentAuthToken()
         }
       });
-      parser.parse(await serverRes.text(), (error, quad) => {
-        if(quad) {
-          store.addQuad(quad);
-        } else {
-          resolve(store);
-        }
-      });
+      if(!serverRes.ok) {
+        let error = await serverRes.text();
+        log.warn(`DDP`, `${method} request to ${uri} failed: ${error}`);
+        reject(error);
+      } else {
+        parser.parse(await serverRes.text(), (error, quad) => {
+          if(quad) {
+            store.addQuad(quad);
+          } else {
+            resolve(store);
+          }
+        });
+      }
     });
   }
 
   // Find all data registrations that are FacadeDataRegistrations
-  let profileStore = await makeAuthenticatedRequestToStore(delegatorWebId, 'GET');
+  let profileStore = await makeAuthenticatedRequestToStore(delegatorWebId, 'GET', true);
   let registrySets = profileStore.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/interop#hasRegistrySet'));
   if(registrySets.length != 1) {
     log.error(`DDP`, `${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
     throw new Error(`${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
   }
-  let registrySetStore = await makeAuthenticatedRequestToStore(registrySets[0].value, 'GET');
+  let registrySetStore = await makeAuthenticatedRequestToStore(registrySets[0].value, 'GET', true);
   let dataRegistries = registrySetStore.getObjects(namedNode(registrySets[0].value), namedNode('http://www.w3.org/ns/solid/interop#hasDataRegistry')).map(nn => nn.value);
   let facadeDataRegistration = new Map();
   for(let dataRegistry of dataRegistries) {
-    let dataRegistryStore = await makeAuthenticatedRequestToStore(dataRegistry, 'GET');
+    let dataRegistryStore = await makeAuthenticatedRequestToStore(dataRegistry, 'GET', true);
     let dataRegistrations = dataRegistryStore.getObjects(namedNode(dataRegistry), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => nn.value);
     for(let dataRegistration of dataRegistrations) {
-      let dataRegistrationStore = await makeAuthenticatedRequestToStore(dataRegistration, 'GET');
+      let dataRegistrationStore = await makeAuthenticatedRequestToStore(dataRegistration, 'GET', true);
       if(dataRegistrationStore.has(namedNode(dataRegistration), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://example.org/vocab/datev/delegation#FacadeDataRegistration'))) {
         let shadowedUris = dataRegistrationStore.getObjects(namedNode(dataRegistration), namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
         for(let shadowedUri of shadowedUris) {
           log.info(`DDP`, `${dataRegistration} shadows data registration at ${shadowedUri}`);
-          facadeDataRegistration.set(dataRegistration, shadowedUri)
+          let list = facadeDataRegistration.get(dataRegistration);
+          if(list) {
+            list.push(shadowedUri);
+          } else {
+            list = [shadowedUri];
+          }
+          facadeDataRegistration.set(dataRegistration, list)
         }
       }
     }
@@ -184,26 +196,19 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   // Get all the resources that are shadowed
   let facade = new Map();
   for(let [key, value] of facadeDataRegistration.entries()) {
-    let shadowedStore = await makeAuthenticatedRequestToStore(value, 'GET');
-    shadowedStore.getObjects(namedNode(value), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(value, key), nn.value]).forEach(r => facade.set(...r));
+    for(let l of value) {
+      let shadowedStore = await makeAuthenticatedRequestToStore(l, 'GET', false);
+      shadowedStore.getObjects(namedNode(l), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(l, key), nn.value]).forEach(r => facade.set(...r));
+    }
   }
 
-  log.silly(`DDP`, `Facaded URIs:`);
-  log.silly([...facade.entries()]);
+  log.silly(`DDP`, `Facaded URIs: ${[...facade.entries()]}`);
   
   // Return actual middleware handler
   return async function reverseProxy(req, res, next) {
     log.verbose(`${req.rid}`, `Incoming request`);
 
-    // We do a trick here and make a HTTPS URI out of the HTTP URI we had to use for proxy reasons
-    const host = req.query['host'];
-    if(!host) {
-      log.warn('Client did not specify "host" query parameter!')
-      res.status(400);
-      res.send('No "host" query parameter specified!');
-      return;
-    }
-    const requestUri = 'https://' + host;
+    const requestUri = req.uri;
 
     // Check whether request URI is facaded
     if(facade.has(requestUri)) {
