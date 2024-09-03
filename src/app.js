@@ -146,14 +146,17 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
       .setJti(randomUUID())
       .sign(privateKey);
 
-      const serverRes = await fetch(local ? uriToLocal(uri) : uri, {
-        method: method,
-        headers: {
+
+	const headers = {
             'DPoP': proxy_dpop,
             'Authorization': 'DPoP ' + await getCurrentAuthToken(),
             'X-Forwarded-Host': new URL(uri).hostname,
 	    'X-Forwarded-Proto': 'https'
-        }
+        };
+
+      const serverRes = await fetch(local ? uriToLocal(uri) : uri, {
+        method: method,
+        headers: headers
       });
       if(!serverRes.ok) {
         let error = await serverRes.text();
@@ -335,7 +338,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
         const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
-          method: payload_dpop_proof['htm'],
+          method: req.method,
           headers: {
               ...filteredHeaders,
               'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
@@ -475,11 +478,11 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
         const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-        const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
-          method: payload_dpop_proof['htm'],
+        const serverRes = await fetch(uriToLocal(facadeContainers.get(requestUri)), {
+          method: req.method,
           headers: {
               ...filteredHeaders,
-              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+              'X-Forwarded-Host': new URL(facadeContainers.get(requestUri)).hostname,
               'X-Forwarded-Proto': 'https'
           },
           body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
@@ -512,15 +515,21 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
           const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
 
-          const serverRes = await fetch(uriToLocal(requestUri), {
-            method: req.method,
-            headers: {
+	  const headers = {
                 ...filteredHeaders,
-                'DPoP': req.headers['dpop'],
-                'Authorization': req.headers['authorization'],
                 'X-Forwarded-Host': new URL(requestUri).hostname,
                 'X-Forwarded-Proto': 'https'
-            },
+            };
+
+	  if  (req.headers['dpop']) {
+		headers['dpop'] = req.headers['dpop']
+	  }
+	  if  (req.headers['authorization']) {
+		headers['authorization'] = req.headers['authorization']
+	  }
+          const serverRes = await fetch(uriToLocal(requestUri), {
+            method: req.method,
+            headers: headers,
             body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
           });
 
