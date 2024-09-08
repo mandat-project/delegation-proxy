@@ -5,15 +5,17 @@ const n3reasoner = require('eyereasoner').n3reasoner; // Assuming you have insta
 async function processActivityInstances() {
   try {
     // Read the contents of activity_instances.ttl
-    const activityInstancesPath = path.join(__dirname, 'activity_instances_test.ttl');
+    const activityInstancesPath = path.join(__dirname, 'workflow.ttl');
+    const signPath = path.join(__dirname, 'sign.ttl');
     const activityInstances = await fs.readFile(activityInstancesPath, 'utf8');
+    const signInstance = await fs.readFile(signPath, 'utf8')
 
     // Read the contents of n3_rules.n3
-    const activitiesInstancesRulesPath = path.join(__dirname, '/rules/n3_rules.n3');
+    const activitiesInstancesRulesPath = path.join(__dirname, '/rules/workflow_rules.n3');
     const activitiesInstancesRules = await fs.readFile(activitiesInstancesRulesPath, 'utf8');
 
     // Combine the contents of both files
-    const activitiesDatastring = `${activityInstances}\n${activitiesInstancesRules}`;
+    const activitiesDatastring = `${signInstance}\n${activityInstances}\n${activitiesInstancesRules}`;
 
     // The result of the query (as a string)
     const resultString = await n3reasoner(activitiesDatastring);

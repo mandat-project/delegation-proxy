@@ -1,6 +1,8 @@
 exports.SME_EMAIL = 'info@sme.com';
 exports.SME_PASSWORD = 'sme24';
 exports.OIDC_NAME = 'oidc-token';
+exports.ID = 'delegation_proxy_535b2b87-8538-41f8-b69f-15fc64483c8b';
+exports.SECRET = '616858746005e42df35c9eb6489d543be2f1265cf8851d7f438452cd79c103af17649cc05c3dbbbdd55138f4494de755b4304fccbe29a9530adedc9fc8277f4a'
 exports.OIDC_USER = 'https://solid.aifb.kit.edu/';
 exports.POD_URL = 'https://bank.solid.aifb.kit.edu';
 exports.POD_URL_TEST = 'https://bank.solid.aifb.kit.edu/test/';
@@ -8,8 +10,8 @@ exports.POD_ACTIVITIES_URL = 'https://sme.solid.aifb.kit.edu/activities.ttl';
 exports.POD_WORKFLOW_URL = 'https://sme.solid.aifb.kit.edu/workflow.ttl';
 exports.POD_FINANCE_URL = 'https://sme.solid.aifb.kit.edu/organization/finance.ttl';
 exports.POD_ASSET_URL = 'https://sme.solid.aifb.kit.edu/organization/asset.ttl';
-exports.POD_BANK_URL = 'https://sme.solid.aifb.kit.edu/organization/bank.ttl'
-exports.ACTIVITY_INSTANCES_URL = 'https://sme.solid.aifb.kit.edu/activityInstances/ceo_activity_instances.ttl'
-
-
-
+exports.POD_BANK_URL = 'https://sme.solid.aifb.kit.edu/organization/bank.ttl';
+exports.SIGNATURE_URL = 'https://sme.solid.aifb.kit.edu/signature.ttl';
+exports.FINANCE_LEADER_MEMBERSHIP_URL = 'https://sme.solid.aifb.kit.edu/memberships/finance_department_leader_membership/finance_leader_membership.ttl';
+exports.FINANCE_LEADER_MEMBERSHIP_URL_NA = 'https://sme.solid.aifb.kit.edu/memberships/finance_department_leader_membership/finance_leader_membership_notapproved.ttl';
+exports.FINANCE_LEADER_MEMBERSHIP_URL_OPEN = 'https://sme.solid.aifb.kit.edu/memberships/finance_department_leader_membership/finance_leader_membership_open.ttl';
