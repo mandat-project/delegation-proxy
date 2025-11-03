@@ -38,7 +38,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   // Constructing local WebId to access profile document
 
   var idp = await getOIDCIssuer(delegatorWebId);
-  if(idp.endsWith('/')) {
+  if (idp.endsWith('/')) {
     idp = idp.substring(0, idp.length - 1);
   }
 
@@ -58,7 +58,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   // For every outgoing request this function should be called to see if
   // the auth token is still valid and otherwise get a new one
   async function getCurrentAuthToken() {
-    if(currentAuthToken && decodeJwt(currentAuthToken).exp > (Date.now() / 1000 + 60 * 9)) {
+    if (currentAuthToken && decodeJwt(currentAuthToken).exp > (Date.now() / 1000 + 60 * 9)) {
       // Still valid (plus one minute in the future), nothing to do
       log.verbose('DDP', `Reusing existing auth token for ${delegatorWebId}`);
     } else {
@@ -80,18 +80,18 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
       // Get new auth token from token endpoint
       const res = await fetch(token_endpoint, {
-          method: 'POST',
-          headers: {
-              'DPoP': dpop,
-              'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({
-              grant_type: 'client_credentials',
-              client_id,
-              client_secret
-          })
+        method: 'POST',
+        headers: {
+          'DPoP': dpop,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id,
+          client_secret
+        })
       })
-      if(res.ok) {
+      if (res.ok) {
         const tokens = await res.json();
         log.silly('DDP', 'Solid OIDC tokens:\n' + JSON.stringify(tokens));
         log.info('DDP', `Sucessfully logged in as ${delegatorWebId}`);
@@ -110,14 +110,14 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     const profile = await fetch(uriToLocal(delegatorWebId), {
       headers: {
         'X-Forwarded-Host': new URL(delegatorWebId).hostname,
-      	'X-Forwarded-Proto': 'https'
-	}
+        'X-Forwarded-Proto': 'https'
+      }
     });
-	let pt = await profile.text()
+    let pt = await profile.text()
 
     const store = await parse(pt, delegatorWebId);
     const issuers = store.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/terms#oidcIssuer'));
-    if(issuers.length != 1) {
+    if (issuers.length != 1) {
       log.warn('Found ' + issuers.length + ' OIDC issuers in the profile document of ' + delegatorWebId + ', needed exactly one!');
     } else {
       log.verbose('DDP', 'Using OIDC issuer at ' + issuers[0].value + ' for authenticating the delegator');
@@ -137,31 +137,31 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         htu: uri,
         htm: method
       })
-      .setProtectedHeader({
-        alg: 'PS256',
-        typ: 'dpop+jwt',
-        jwk: jwkPublicKey
-      })
-      .setIssuedAt()
-      .setJti(randomUUID())
-      .sign(privateKey);
+        .setProtectedHeader({
+          alg: 'PS256',
+          typ: 'dpop+jwt',
+          jwk: jwkPublicKey
+        })
+        .setIssuedAt()
+        .setJti(randomUUID())
+        .sign(privateKey);
 
       const serverRes = await fetch(local ? uriToLocal(uri) : uri, {
         method: method,
         headers: {
-            'DPoP': proxy_dpop,
-            'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-            'X-Forwarded-Host': new URL(uri).hostname,
-	    'X-Forwarded-Proto': 'https'
+          'DPoP': proxy_dpop,
+          'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+          'X-Forwarded-Host': new URL(uri).hostname,
+          'X-Forwarded-Proto': 'https'
         }
       });
-      if(!serverRes.ok) {
+      if (!serverRes.ok) {
         let error = await serverRes.text();
         log.warn(`DDP`, `${method} request to ${uri} failed: ${error}`);
         reject(error);
       } else {
         parser.parse(await serverRes.text(), (error, quad) => {
-          if(quad) {
+          if (quad) {
             store.addQuad(quad);
           } else {
             resolve(store);
@@ -174,22 +174,22 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   // Find all data registrations that are FacadeDataRegistrations
   let profileStore = await makeAuthenticatedRequestToStore(delegatorWebId, 'GET', true);
   let registrySets = profileStore.getObjects(namedNode(delegatorWebId), namedNode('http://www.w3.org/ns/solid/interop#hasRegistrySet'));
-  if(registrySets.length != 1) {
+  if (registrySets.length != 1) {
     log.error(`DDP`, `${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
     throw new Error(`${delegatorWebId} has ${registrySets.length} registry sets in their profile document but need exactly one!`);
   }
   let registrySetStore = await makeAuthenticatedRequestToStore(registrySets[0].value, 'GET', true);
   let dataRegistries = registrySetStore.getObjects(namedNode(registrySets[0].value), namedNode('http://www.w3.org/ns/solid/interop#hasDataRegistry')).map(nn => nn.value);
   let facadeDataRegistration = new Map();
-  for(let dataRegistry of dataRegistries) {
+  for (let dataRegistry of dataRegistries) {
     let dataRegistryStore = await makeAuthenticatedRequestToStore(dataRegistry, 'GET', true);
     let dataRegistrations = dataRegistryStore.getObjects(namedNode(dataRegistry), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => nn.value);
-    for(let dataRegistration of dataRegistrations) {
+    for (let dataRegistration of dataRegistrations) {
       let dataRegistrationStore = await makeAuthenticatedRequestToStore(dataRegistration, 'GET', true);
-      if(dataRegistrationStore.has(namedNode(dataRegistration), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://example.org/vocab/datev/delegation#FacadeDataRegistration'))) {
+      if (dataRegistrationStore.has(namedNode(dataRegistration), namedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), namedNode('http://example.org/vocab/datev/delegation#FacadeDataRegistration'))) {
         let shadowedUris = dataRegistrationStore.getObjects(namedNode(dataRegistration), namedNode('http://example.org/vocab/datev/delegation#shadowsRegistration')).map(nn => nn.value);
         let list = [];
-        for(let shadowedUri of shadowedUris) {
+        for (let shadowedUri of shadowedUris) {
           log.info(`DDP`, `${dataRegistration} shadows data registration at ${shadowedUri}`);
           list.push(shadowedUri);
         }
@@ -201,9 +201,10 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   // Get all the resources that are shadowed
   let facadeResources = new Map();
   let facadeContainers = new Map();
-  for(let [key, value] of facadeDataRegistration.entries()) {
+  for (let [key, value] of facadeDataRegistration.entries()) {
+    facadeResources.set(key, value[0])
     let list = [];
-    for(let l of value) {
+    for (let l of value) {
       let shadowedStore = await makeAuthenticatedRequestToStore(l, 'GET', false);
       let shadowed = shadowedStore.getObjects(namedNode(l), namedNode('http://www.w3.org/ns/ldp#contains')).map(nn => [nn.value.replace(l, key), nn.value])
       shadowed.forEach(r => facadeResources.set(...r));
@@ -213,8 +214,8 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
   }
 
   log.silly(`DDP`, `Facaded resources: ${[...facadeResources.entries()]}`);
-  log.silly(`DDP`, `Facaded containers: ${[...facadeContainers.entries()]}`);
-  
+  log.silly(`DDP`, `Facaded by container: ${[...facadeContainers.entries()]}`);
+
   // Return actual middleware handler
   return async function reverseProxy(req, res, next) {
     log.verbose(`${req.rid}`, `Incoming request`);
@@ -222,17 +223,17 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     const requestUri = base_uri + req.originalUrl;
 
     // Check whether request URI is facaded
-    if(facadeResources.has(requestUri)) {
+    if (facadeResources.has(requestUri) && !facadeContainers.has(requestUri)) {
       log.verbose(`${req.rid}`, `URI ${requestUri} is facade for ${facadeResources.get(requestUri)}`)
       // Get auth info from clients request
-      if(req.headers['authorization'] && req.headers['dpop']) {
-        const auth_token = req.headers['authorization'].replace('DPoP ','');
+      if (req.headers['authorization'] && req.headers['dpop']) {
+        const auth_token = req.headers['authorization'].replace('DPoP ', '');
         const dpop_proof = req.headers['dpop'];
 
         try {
           const issuer = decodeJwt(auth_token)['iss'];
           // Invalid auth token
-          if(!issuer) {
+          if (!issuer) {
             res.status(403);
             log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
             res.send("Auth token invalid: No issuer!");
@@ -253,7 +254,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
 
           // Check whether the DPoP signing key matches the auth token thumbprint
-          if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
+          if (await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
             log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
             res.send("DPoP invalid: Thumbprint not matching signing key!");
             res.sendStatus(403);
@@ -263,7 +264,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
           // Check whether URI and method in the DPoP match the requested URI and method
           const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
-          if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
+          if (payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
             log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
             res.status(403);
             res.send("Auth token invalid: Requested method or URI does not match!");
@@ -273,57 +274,97 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
           // We have an authenticated WebId \o/
           const delegateWebId = payload_auth_token['webid'];
-          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
+          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${facadeResources.get(requestUri)} via ${requestUri}`);
 
           // Create and sign a DPoP for the request
           const proxy_dpop = await new SignJWT({
             htu: facadeResources.get(requestUri),
             htm: payload_dpop_proof['htm']
           })
-          .setProtectedHeader({
-            alg: 'PS256',
-            typ: 'dpop+jwt',
-            jwk: jwkPublicKey
-          })
-          .setIssuedAt()
-          .setJti(randomUUID())
-          .sign(privateKey);
+            .setProtectedHeader({
+              alg: 'PS256',
+              typ: 'dpop+jwt',
+              jwk: jwkPublicKey
+            })
+            .setIssuedAt()
+            .setJti(randomUUID())
+            .sign(privateKey);
           log.verbose(`${req.rid}`, `Created signed DPoP for request`);
 
-          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+          const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
           const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
             method: payload_dpop_proof['htm'],
             headers: {
-                ...filteredHeaders,
-                'DPoP': proxy_dpop,
-                'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-                'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
-                'X-Forwarded-Proto': 'https'
+              ...filteredHeaders,
+              'DPoP': proxy_dpop,
+              'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+              'X-Forwarded-Proto': 'https'
             },
-            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
           });
 
           log.verbose(`${req.rid}`, `Sent request, received response`);
 
           // Copy header and status to client response
-          res.set(Object.fromEntries(serverRes.headers));
+          // --- START OF NEW HEADER LOGIC ---
+
+          // Get the real and facade URLs for rewriting
+          const realUrl = facadeResources.get(requestUri);
+          const facadeUrl = requestUri;
+
+          // Get the base origins for rewriting
+          const realOrigin = new URL(realUrl).origin;
+          const facadeOrigin = new URL(facadeUrl).origin;
+
+          // Get the parent container paths for rewriting
+          // This ensures links to ".meta", ".acl", etc. are rewritten
+          const realContainerPath = realUrl.substring(0, realUrl.lastIndexOf('/') + 1);
+          const facadeContainerPath = facadeUrl.substring(0, facadeUrl.lastIndexOf('/') + 1);
+
+          // Iterate over headers, rewrite, and set them
+          serverRes.headers.forEach((value, name) => {
+            const lowerName = name.toLowerCase();
+            let newValue = value;
+
+            // Check for headers that contain URLs
+            if (lowerName === 'location' || lowerName === 'link' || lowerName === 'content-location') {
+
+              // 1. Rewrite the most specific path first
+              // e.g., https://real.com/data/sub/ -> https://facade.com/my-data/sub/
+              newValue = newValue.replace(new RegExp(realContainerPath, 'g'), facadeContainerPath);
+
+              // 2. Rewrite the base origin
+              // e.g., https://real.com -> https://facade.com
+              newValue = newValue.replace(new RegExp(realOrigin, 'g'), facadeOrigin);
+            }
+
+            // Set the (potentially modified) header
+            res.set(name, newValue);
+          });
+
+          // --- END OF NEW HEADER LOGIC ---
           res.status(serverRes.status);
+          res.removeHeader('Transfer-Encoding');
+          res.removeHeader('Content-Length');
+
+
 
           // Copy body to client response
           if (serverRes.body) {
             let reader = serverRes.body.getReader();
             let done = false
             let value = '';
-            while(!done) {
+            while (!done) {
               res.write(value);
               ({ value, done } = await reader.read());
             }
           }
           res.end();
           log.verbose(`${req.rid}`, `Finished returning response`);
-        } catch(error) {
+        } catch (error) {
           res.status(403);
           log.warn(`${req.rid}`, error);
           res.send(error);
@@ -331,31 +372,69 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         }
       } else {
         // Forward unauthenticated facaded request
-        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+        const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
         const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
-          method: payload_dpop_proof['htm'],
+          method: req.method,
           headers: {
-              ...filteredHeaders,
-              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
-              'X-Forwarded-Proto': 'https'
+            ...filteredHeaders,
+            'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+            'X-Forwarded-Proto': 'https'
           },
-          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
         });
 
         log.verbose(`${req.rid}`, `Sent request, received response`);
 
         // Copy header and status to client response
-        res.set(Object.fromEntries(serverRes.headers));
+        // --- START OF NEW HEADER LOGIC ---
+
+        // Get the real and facade URLs for rewriting
+        const realUrl = facadeResources.get(requestUri);
+        const facadeUrl = requestUri;
+
+        // Get the base origins for rewriting
+        const realOrigin = new URL(realUrl).origin;
+        const facadeOrigin = new URL(facadeUrl).origin;
+
+        // Get the parent container paths for rewriting
+        // This ensures links to ".meta", ".acl", etc. are rewritten
+        const realContainerPath = realUrl.substring(0, realUrl.lastIndexOf('/') + 1);
+        const facadeContainerPath = facadeUrl.substring(0, facadeUrl.lastIndexOf('/') + 1);
+
+        // Iterate over headers, rewrite, and set them
+        serverRes.headers.forEach((value, name) => {
+          const lowerName = name.toLowerCase();
+          let newValue = value;
+
+          // Check for headers that contain URLs
+          if (lowerName === 'location' || lowerName === 'link' || lowerName === 'content-location') {
+
+            // 1. Rewrite the most specific path first
+            // e.g., https://real.com/data/sub/ -> https://facade.com/my-data/sub/
+            newValue = newValue.replace(new RegExp(realContainerPath, 'g'), facadeContainerPath);
+
+            // 2. Rewrite the base origin
+            // e.g., https://real.com -> https://facade.com
+            newValue = newValue.replace(new RegExp(realOrigin, 'g'), facadeOrigin);
+          }
+
+          // Set the (potentially modified) header
+          res.set(name, newValue);
+        });
+
+        // --- END OF NEW HEADER LOGIC ---
         res.status(serverRes.status);
+        res.removeHeader('Transfer-Encoding');
+        res.removeHeader('Content-Length');
 
         // Copy body to client response
         if (serverRes.body) {
           let reader = serverRes.body.getReader();
           let done = false
           let value = '';
-          while(!done) {
+          while (!done) {
             res.write(value);
             ({ value, done } = await reader.read());
           }
@@ -363,19 +442,19 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         res.end();
         log.verbose(`${req.rid}`, `Finished returning response`);
       }
-    } else if(facadeContainers.has(requestUri)) {
+    } else if (facadeResources.has(requestUri) && facadeContainers.has(requestUri)) {
       // check if facaded container
-      log.verbose(`${req.rid}`, `URI ${requestUri} is facade container`)
+      log.verbose(`${req.rid}`, `URI ${requestUri} is facade container for ${facadeResources.get(requestUri)}`)
 
-      if(req.headers['authorization'] && req.headers['dpop']) {
+      if (req.headers['authorization'] && req.headers['dpop']) {
         // Get auth info from clients request
-        const auth_token = req.headers['authorization'].replace('DPoP ','');
+        const auth_token = req.headers['authorization'].replace('DPoP ', '');
         const dpop_proof = req.headers['dpop'];
 
         try {
           const issuer = decodeJwt(auth_token)['iss'];
           // Invalid auth token
-          if(!issuer) {
+          if (!issuer) {
             res.status(403);
             log.warn(`${req.rid}`, `Auth token invalid: No issuer!`);
             res.send("Auth token invalid: No issuer!");
@@ -396,7 +475,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           const client_public_key = await importJWK(decodeProtectedHeader(dpop_proof)['jwk']);
 
           // Check whether the DPoP signing key matches the auth token thumbprint
-          if(await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
+          if (await calculateJwkThumbprint(decodeProtectedHeader(dpop_proof)['jwk']) !== client_key_thumbprint) {
             log.warn(`${req.rid}`, `DPoP invalid: Thumbprint not matching signing key!`);
             res.send("DPoP invalid: Thumbprint not matching signing key!");
             res.sendStatus(403);
@@ -406,7 +485,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
           // Check whether URI and method in the DPoP match the requested URI and method
           const { payload: payload_dpop_proof } = await jwtVerify(dpop_proof, client_public_key);
-          if(payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
+          if (payload_dpop_proof['htu'] !== requestUri || payload_dpop_proof['htm'] !== req.method) {
             log.warn(`${req.rid}`, `Auth token invalid: Requested method or URI does not match!`);
             res.status(403);
             res.send("Auth token invalid: Requested method or URI does not match!");
@@ -416,43 +495,81 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
 
           // We have an authenticated WebId \o/
           const delegateWebId = payload_auth_token['webid'];
-          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${requestUri}`);
+          log.info(`${req.rid}`, `${delegateWebId} triggers a ${req.method} request to ${facadeResources.get(requestUri)} via ${requestUri}`);
 
           // Create and sign a DPoP for the request
           const proxy_dpop = await new SignJWT({
-            htu: requestUri,
+            htu: facadeResources.get(requestUri),
             htm: payload_dpop_proof['htm']
           })
-          .setProtectedHeader({
-            alg: 'PS256',
-            typ: 'dpop+jwt',
-            jwk: jwkPublicKey
-          })
-          .setIssuedAt()
-          .setJti(randomUUID())
-          .sign(privateKey);
+            .setProtectedHeader({
+              alg: 'PS256',
+              typ: 'dpop+jwt',
+              jwk: jwkPublicKey
+            })
+            .setIssuedAt()
+            .setJti(randomUUID())
+            .sign(privateKey);
           log.verbose(`${req.rid}`, `Created signed DPoP for request`);
 
-          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+          const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
-          const serverRes = await fetch(uriToLocal(requestUri), {
+          const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
             method: payload_dpop_proof['htm'],
             headers: {
-                ...filteredHeaders,
-                'DPoP': proxy_dpop,
-                'Authorization': 'DPoP ' + await getCurrentAuthToken(),
-                'X-Forwarded-Host': new URL(requestUri).hostname,
-                'X-Forwarded-Proto': 'https'
+              ...filteredHeaders,
+              'DPoP': proxy_dpop,
+              'Authorization': 'DPoP ' + await getCurrentAuthToken(),
+              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+              'X-Forwarded-Proto': 'https'
             },
-            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
           });
 
           log.verbose(`${req.rid}`, `Sent request, received response`);
 
           // Copy header and status to client response
-          res.set(Object.fromEntries(serverRes.headers));
+          // --- START OF NEW HEADER LOGIC ---
+
+          // Get the real and facade URLs for rewriting
+          const realUrl = facadeResources.get(requestUri);
+          const facadeUrl = requestUri;
+
+          // Get the base origins for rewriting
+          const realOrigin = new URL(realUrl).origin;
+          const facadeOrigin = new URL(facadeUrl).origin;
+
+          // Get the parent container paths for rewriting
+          // This ensures links to ".meta", ".acl", etc. are rewritten
+          const realContainerPath = realUrl.substring(0, realUrl.lastIndexOf('/') + 1);
+          const facadeContainerPath = facadeUrl.substring(0, facadeUrl.lastIndexOf('/') + 1);
+
+          // Iterate over headers, rewrite, and set them
+          serverRes.headers.forEach((value, name) => {
+            const lowerName = name.toLowerCase();
+            let newValue = value;
+
+            // Check for headers that contain URLs
+            if (lowerName === 'location' || lowerName === 'link' || lowerName === 'content-location') {
+
+              // 1. Rewrite the most specific path first
+              // e.g., https://real.com/data/sub/ -> https://facade.com/my-data/sub/
+              newValue = newValue.replace(new RegExp(realContainerPath, 'g'), facadeContainerPath);
+
+              // 2. Rewrite the base origin
+              // e.g., https://real.com -> https://facade.com
+              newValue = newValue.replace(new RegExp(realOrigin, 'g'), facadeOrigin);
+            }
+
+            // Set the (potentially modified) header
+            res.set(name, newValue);
+          });
+
+          // --- END OF NEW HEADER LOGIC ---
           res.status(serverRes.status);
+          res.removeHeader('Transfer-Encoding');
+          res.removeHeader('Content-Length');
 
           // Parse body to add triples
           let store = await parse(await serverRes.text(), requestUri);
@@ -464,7 +581,7 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           });
 
           log.verbose(`${req.rid}`, `Finished returning response`);
-        } catch(error) {
+        } catch (error) {
           res.status(403);
           log.warn(`${req.rid}`, error);
           res.send(error);
@@ -472,31 +589,69 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         }
       } else {
         // Forward unauthenticated facaded request
-        const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+        const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+        const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
         const serverRes = await fetch(uriToLocal(facadeResources.get(requestUri)), {
-          method: payload_dpop_proof['htm'],
+          method: req.method,
           headers: {
-              ...filteredHeaders,
-              'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
-              'X-Forwarded-Proto': 'https'
+            ...filteredHeaders,
+            'X-Forwarded-Host': new URL(facadeResources.get(requestUri)).hostname,
+            'X-Forwarded-Proto': 'https'
           },
-          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+          body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
         });
 
         log.verbose(`${req.rid}`, `Sent request, received response`);
 
         // Copy header and status to client response
-        res.set(Object.fromEntries(serverRes.headers));
+        // --- START OF NEW HEADER LOGIC ---
+
+        // Get the real and facade URLs for rewriting
+        const realUrl = facadeResources.get(requestUri);
+        const facadeUrl = requestUri;
+
+        // Get the base origins for rewriting
+        const realOrigin = new URL(realUrl).origin;
+        const facadeOrigin = new URL(facadeUrl).origin;
+        
+        // Get the parent container paths for rewriting
+        // This ensures links to ".meta", ".acl", etc. are rewritten
+        const realContainerPath = realUrl.substring(0, realUrl.lastIndexOf('/') + 1);
+        const facadeContainerPath = facadeUrl.substring(0, facadeUrl.lastIndexOf('/') + 1);
+
+        // Iterate over headers, rewrite, and set them
+        serverRes.headers.forEach((value, name) => {
+            const lowerName = name.toLowerCase();
+            let newValue = value;
+
+            // Check for headers that contain URLs
+            if (lowerName === 'location' || lowerName === 'link' || lowerName === 'content-location') {
+                
+                // 1. Rewrite the most specific path first
+                // e.g., https://real.com/data/sub/ -> https://facade.com/my-data/sub/
+                newValue = newValue.replace(new RegExp(realContainerPath, 'g'), facadeContainerPath);
+                
+                // 2. Rewrite the base origin
+                // e.g., https://real.com -> https://facade.com
+                newValue = newValue.replace(new RegExp(realOrigin, 'g'), facadeOrigin);
+            }
+
+            // Set the (potentially modified) header
+            res.set(name, newValue);
+        });
+
+        // --- END OF NEW HEADER LOGIC ---
         res.status(serverRes.status);
+        res.removeHeader('Transfer-Encoding');
+        res.removeHeader('Content-Length');
 
         // Copy body to client response
         if (serverRes.body) {
           let reader = serverRes.body.getReader();
           let done = false
           let value = '';
-          while(!done) {
+          while (!done) {
             res.write(value);
             ({ value, done } = await reader.read());
           }
@@ -507,21 +662,21 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
     } else {
       // if not in facade, just forward
       log.verbose(`${req.rid}`, `URI ${requestUri} is not facaded, just forwarding request`)
-      if(req.headers['authorization'] && req.headers['dpop']) {
+      if (req.headers['authorization'] && req.headers['dpop']) {
         try {
-          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+          const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
           const serverRes = await fetch(uriToLocal(requestUri), {
             method: req.method,
             headers: {
-                ...filteredHeaders,
-                'DPoP': req.headers['dpop'],
-                'Authorization': req.headers['authorization'],
-                'X-Forwarded-Host': new URL(requestUri).hostname,
-                'X-Forwarded-Proto': 'https'
+              ...filteredHeaders,
+              'DPoP': req.headers['dpop'],
+              'Authorization': req.headers['authorization'],
+              'X-Forwarded-Host': new URL(requestUri).hostname,
+              'X-Forwarded-Proto': 'https'
             },
-            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
           });
 
           log.verbose(`${req.rid}`, `Sent request, received response`);
@@ -529,20 +684,22 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           // Copy header and status to client response
           res.set(Object.fromEntries(serverRes.headers));
           res.status(serverRes.status);
+          res.removeHeader('Transfer-Encoding');
+          res.removeHeader('Content-Length');
 
           // Copy body to client response
           if (serverRes.body) {
             let reader = serverRes.body.getReader();
             let done = false
             let value = '';
-            while(!done) {
+            while (!done) {
               res.write(value);
               ({ value, done } = await reader.read());
             }
           }
           res.end();
           log.verbose(`${req.rid}`, `Finished returning response`);
-        } catch(error) {
+        } catch (error) {
           res.status(403);
           log.warn(`${req.rid}`, error);
           res.send(error);
@@ -550,17 +707,17 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
         }
       } else {
         try {
-          const reservedHeaderKeys = ['x-forwarded-host','x-forwarded-proto','server','set-cookie','upgrade','connection','host','authorization','dpop']
-          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers,key) => {headers[key]=req.headers[key]; return headers},{});
+          const reservedHeaderKeys = ['x-forwarded-host', 'x-forwarded-proto', 'server', 'set-cookie', 'upgrade', 'connection', 'host', 'authorization', 'dpop']
+          const filteredHeaders = Object.keys(req.headers).filter(key => !reservedHeaderKeys.includes(key)).reduce((headers, key) => { headers[key] = req.headers[key]; return headers }, {});
 
           const serverRes = await fetch(uriToLocal(requestUri), {
             method: req.method,
             headers: {
-                ...filteredHeaders,
-                'X-Forwarded-Host': new URL(requestUri).hostname,
-                'X-Forwarded-Proto': 'https'
+              ...filteredHeaders,
+              'X-Forwarded-Host': new URL(requestUri).hostname,
+              'X-Forwarded-Proto': 'https'
             },
-            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length==0)) ? undefined :req.body
+            body: (!req.body || (typeof req.body === "object" && Object.keys(req.body).length == 0)) ? undefined : req.body
           });
 
           log.verbose(`${req.rid}`, `Sent request, received response`);
@@ -568,20 +725,22 @@ async function reverseProxy(delegatorWebId, client_id, client_secret, pod_addres
           // Copy header and status to client response
           res.set(Object.fromEntries(serverRes.headers));
           res.status(serverRes.status);
+          res.removeHeader('Transfer-Encoding');
+          res.removeHeader('Content-Length');
 
           // Copy body to client response
           if (serverRes.body) {
             let reader = serverRes.body.getReader();
             let done = false
             let value = '';
-            while(!done) {
+            while (!done) {
               res.write(value);
               ({ value, done } = await reader.read());
             }
           }
           res.end();
           log.verbose(`${req.rid}`, `Finished returning response`);
-        } catch(error) {
+        } catch (error) {
           res.status(403);
           log.warn(`${req.rid}`, error);
           res.send(error);
@@ -599,11 +758,11 @@ async function parse(rdfString, baseUri) {
     });
     const store = new Store();
     parser.parse(rdfString, (error, quad) => {
-      if(error) {
+      if (error) {
         reject(error);
         return;
       }
-      if(quad) {
+      if (quad) {
         store.add(quad);
       } else {
         resolve(store);
